@@ -22,13 +22,18 @@ export const mockExpenses: Expense[] = [
 ];
 
 export const mockAccounts: Account[] = [
-  { id: '1', propFirm: 'FTMO', accountSize: 100000, startDate: '2024-06-15', status: 'passed', endDate: '2024-07-20', profitLoss: 8500, notes: 'Solid run!' },
-  { id: '2', propFirm: 'FundedNext', accountSize: 50000, startDate: '2024-08-01', status: 'passed', endDate: '2024-09-05', profitLoss: 4200 },
-  { id: '3', propFirm: 'FTMO', accountSize: 200000, startDate: '2024-10-10', status: 'in_progress', profitLoss: 12000 },
-  { id: '4', propFirm: 'The5ers', accountSize: 100000, startDate: '2024-09-20', status: 'failed', endDate: '2024-10-15', profitLoss: -5500, notes: 'Hit max drawdown' },
-  { id: '5', propFirm: 'E8 Funding', accountSize: 25000, startDate: '2024-11-01', status: 'passed', endDate: '2024-12-10', profitLoss: 2100 },
-  { id: '6', propFirm: 'FundedNext', accountSize: 100000, startDate: '2025-01-05', status: 'in_progress', profitLoss: 3500 },
-  { id: '7', propFirm: 'FTMO', accountSize: 50000, startDate: '2024-07-01', status: 'failed', endDate: '2024-07-25', profitLoss: -2800 },
+  // Evaluations
+  { id: '1', type: 'evaluation', propFirm: 'FTMO', accountSize: 100000, startDate: '2024-06-15', status: 'passed', endDate: '2024-07-20', profitLoss: 8500, notes: 'Solid run!' },
+  { id: '2', type: 'evaluation', propFirm: 'FundedNext', accountSize: 50000, startDate: '2024-08-01', status: 'passed', endDate: '2024-09-05', profitLoss: 4200 },
+  { id: '3', type: 'evaluation', propFirm: 'FTMO', accountSize: 200000, startDate: '2024-10-10', status: 'in_progress', profitLoss: 12000 },
+  { id: '4', type: 'evaluation', propFirm: 'The5ers', accountSize: 100000, startDate: '2024-09-20', status: 'failed', endDate: '2024-10-15', profitLoss: -5500, notes: 'Hit max drawdown' },
+  { id: '5', type: 'evaluation', propFirm: 'E8 Funding', accountSize: 25000, startDate: '2024-11-01', status: 'passed', endDate: '2024-12-10', profitLoss: 2100 },
+  { id: '6', type: 'evaluation', propFirm: 'FundedNext', accountSize: 100000, startDate: '2025-01-05', status: 'in_progress', profitLoss: 3500 },
+  { id: '7', type: 'evaluation', propFirm: 'FTMO', accountSize: 50000, startDate: '2024-07-01', status: 'failed', endDate: '2024-07-25', profitLoss: -2800 },
+  // Funded
+  { id: '8', type: 'funded', propFirm: 'FTMO', accountSize: 100000, startDate: '2024-08-01', status: 'active', profitLoss: 14200, notes: 'First funded account' },
+  { id: '9', type: 'funded', propFirm: 'FundedNext', accountSize: 50000, startDate: '2024-10-01', status: 'active', profitLoss: 6800 },
+  { id: '10', type: 'funded', propFirm: 'E8 Funding', accountSize: 25000, startDate: '2024-12-15', status: 'breached', endDate: '2025-01-10', profitLoss: -3200, notes: 'Daily drawdown breach' },
 ];
 
 export const mockPropFirms: PropFirm[] = [

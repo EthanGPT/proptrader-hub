@@ -1,45 +1,32 @@
 import { useState } from "react";
 import { format } from "date-fns";
 import { Plus, Download, Pencil, Trash2 } from "lucide-react";
-import { mockPayouts } from "@/data/mockData";
-import { PROP_FIRMS, PAYOUT_METHODS, Payout } from "@/types";
+import { useData } from "@/context/DataContext";
+import { PAYOUT_METHODS, Payout } from "@/types";
 import { Button } from "@/components/ui/button";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 
 const Payouts = () => {
-  const [payouts, setPayouts] = useState<Payout[]>(mockPayouts);
+  const { payouts, propFirms, addPayout, updatePayout, deletePayout } = useData();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingPayout, setEditingPayout] = useState<Payout | null>(null);
   const [filterFirm, setFilterFirm] = useState<string>("all");
 
   const totalPayouts = payouts.reduce((sum, p) => sum + p.amount, 0);
 
-  const filteredPayouts = filterFirm === "all" 
-    ? payouts 
+  const filteredPayouts = filterFirm === "all"
+    ? payouts
     : payouts.filter(p => p.propFirm === filterFirm);
 
   const sortedPayouts = [...filteredPayouts].sort(
@@ -49,11 +36,7 @@ const Payouts = () => {
   const handleExportCSV = () => {
     const headers = ['Date', 'Amount', 'Prop Firm', 'Method', 'Notes'];
     const rows = sortedPayouts.map(p => [
-      p.date,
-      p.amount.toString(),
-      p.propFirm,
-      p.method,
-      p.notes || ''
+      p.date, p.amount.toString(), p.propFirm, p.method, p.notes || ''
     ]);
     const csv = [headers, ...rows].map(row => row.join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
@@ -62,10 +45,6 @@ const Payouts = () => {
     a.href = url;
     a.download = 'payouts.csv';
     a.click();
-  };
-
-  const handleDelete = (id: string) => {
-    setPayouts(payouts.filter(p => p.id !== id));
   };
 
   return (
@@ -94,16 +73,13 @@ const Payouts = () => {
                   {editingPayout ? 'Edit Payout' : 'Add New Payout'}
                 </DialogTitle>
               </DialogHeader>
-              <PayoutForm 
-                onClose={() => {
-                  setIsDialogOpen(false);
-                  setEditingPayout(null);
-                }}
+              <PayoutForm
+                onClose={() => { setIsDialogOpen(false); setEditingPayout(null); }}
                 onSave={(payout) => {
                   if (editingPayout) {
-                    setPayouts(payouts.map(p => p.id === payout.id ? payout : p));
+                    updatePayout(payout);
                   } else {
-                    setPayouts([...payouts, { ...payout, id: Date.now().toString() }]);
+                    addPayout(payout);
                   }
                   setIsDialogOpen(false);
                   setEditingPayout(null);
@@ -124,8 +100,8 @@ const Payouts = () => {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Firms</SelectItem>
-              {PROP_FIRMS.map((firm) => (
-                <SelectItem key={firm} value={firm}>{firm}</SelectItem>
+              {propFirms.map((firm) => (
+                <SelectItem key={firm.id} value={firm.name}>{firm.name}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -163,28 +139,16 @@ const Payouts = () => {
                 </TableCell>
                 <TableCell>
                   <div className="flex justify-end gap-2 opacity-0 transition-opacity group-hover:opacity-100">
-                    <Button 
-                      variant="ghost" 
-                      size="icon"
-                      onClick={() => {
-                        setEditingPayout(payout);
-                        setIsDialogOpen(true);
-                      }}
-                    >
+                    <Button variant="ghost" size="icon" onClick={() => { setEditingPayout(payout); setIsDialogOpen(true); }}>
                       <Pencil className="h-4 w-4" />
                     </Button>
-                    <Button 
-                      variant="ghost" 
-                      size="icon"
-                      onClick={() => handleDelete(payout.id)}
-                    >
+                    <Button variant="ghost" size="icon" onClick={() => deletePayout(payout.id)}>
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>
                   </div>
                 </TableCell>
               </TableRow>
             ))}
-            {/* Totals Row */}
             <TableRow className="bg-secondary/50 font-semibold hover:bg-secondary/50">
               <TableCell colSpan={4}>Total</TableCell>
               <TableCell className="text-right text-lg text-success">
@@ -206,6 +170,7 @@ interface PayoutFormProps {
 }
 
 function PayoutForm({ onClose, onSave, initialData }: PayoutFormProps) {
+  const { propFirms } = useData();
   const [formData, setFormData] = useState<Partial<Payout>>(
     initialData || {
       date: new Date().toISOString().split('T')[0],
@@ -226,53 +191,29 @@ function PayoutForm({ onClose, onSave, initialData }: PayoutFormProps) {
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
           <Label htmlFor="date">Date</Label>
-          <Input
-            id="date"
-            type="date"
-            value={formData.date}
-            onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-            required
-          />
+          <Input id="date" type="date" value={formData.date} onChange={(e) => setFormData({ ...formData, date: e.target.value })} required />
         </div>
         <div className="space-y-2">
           <Label htmlFor="amount">Amount ($)</Label>
-          <Input
-            id="amount"
-            type="number"
-            min="0"
-            step="0.01"
-            value={formData.amount}
-            onChange={(e) => setFormData({ ...formData, amount: parseFloat(e.target.value) })}
-            required
-          />
+          <Input id="amount" type="number" min="0" step="0.01" value={formData.amount} onChange={(e) => setFormData({ ...formData, amount: parseFloat(e.target.value) })} required />
         </div>
       </div>
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
           <Label htmlFor="propFirm">Prop Firm</Label>
-          <Select
-            value={formData.propFirm}
-            onValueChange={(value) => setFormData({ ...formData, propFirm: value })}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="Select firm" />
-            </SelectTrigger>
+          <Select value={formData.propFirm} onValueChange={(value) => setFormData({ ...formData, propFirm: value })}>
+            <SelectTrigger><SelectValue placeholder="Select firm" /></SelectTrigger>
             <SelectContent>
-              {PROP_FIRMS.map((firm) => (
-                <SelectItem key={firm} value={firm}>{firm}</SelectItem>
+              {propFirms.map((firm) => (
+                <SelectItem key={firm.id} value={firm.name}>{firm.name}</SelectItem>
               ))}
             </SelectContent>
           </Select>
         </div>
         <div className="space-y-2">
           <Label htmlFor="method">Payout Method</Label>
-          <Select
-            value={formData.method}
-            onValueChange={(value) => setFormData({ ...formData, method: value as Payout['method'] })}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="Select method" />
-            </SelectTrigger>
+          <Select value={formData.method} onValueChange={(value) => setFormData({ ...formData, method: value as Payout['method'] })}>
+            <SelectTrigger><SelectValue placeholder="Select method" /></SelectTrigger>
             <SelectContent>
               {PAYOUT_METHODS.map((method) => (
                 <SelectItem key={method.value} value={method.value}>{method.label}</SelectItem>
@@ -283,17 +224,10 @@ function PayoutForm({ onClose, onSave, initialData }: PayoutFormProps) {
       </div>
       <div className="space-y-2">
         <Label htmlFor="notes">Notes</Label>
-        <Textarea
-          id="notes"
-          value={formData.notes}
-          onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-          placeholder="Optional notes..."
-        />
+        <Textarea id="notes" value={formData.notes} onChange={(e) => setFormData({ ...formData, notes: e.target.value })} placeholder="Optional notes..." />
       </div>
       <div className="flex justify-end gap-3">
-        <Button type="button" variant="outline" onClick={onClose}>
-          Cancel
-        </Button>
+        <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
         <Button type="submit" className="bg-accent text-accent-foreground hover:bg-accent/90">
           {initialData ? 'Update' : 'Add'} Payout
         </Button>

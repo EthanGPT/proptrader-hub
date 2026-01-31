@@ -16,12 +16,17 @@ export interface Expense {
   notes?: string;
 }
 
+export type AccountType = 'evaluation' | 'funded';
+export type EvaluationStatus = 'passed' | 'failed' | 'in_progress';
+export type FundedStatus = 'active' | 'breached' | 'withdrawn';
+
 export interface Account {
   id: string;
+  type: AccountType;
   propFirm: string;
   accountSize: number;
   startDate: string;
-  status: 'passed' | 'failed' | 'in_progress';
+  status: EvaluationStatus | FundedStatus;
   endDate?: string;
   profitLoss: number;
   notes?: string;

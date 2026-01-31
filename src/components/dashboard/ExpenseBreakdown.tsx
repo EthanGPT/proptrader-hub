@@ -1,25 +1,26 @@
+import { useMemo } from "react";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
-import { mockExpenses } from "@/data/mockData";
+import { useData } from "@/context/DataContext";
 import { EXPENSE_CATEGORIES } from "@/types";
 
 export function ExpenseBreakdown() {
-  // Calculate expense breakdown by category
-  const categoryTotals = mockExpenses.reduce((acc, expense) => {
-    acc[expense.category] = (acc[expense.category] || 0) + expense.amount;
-    return acc;
-  }, {} as Record<string, number>);
+  const { expenses } = useData();
 
-  const data = Object.entries(categoryTotals).map(([category, amount]) => ({
-    name: EXPENSE_CATEGORIES.find(c => c.value === category)?.label || category,
-    value: amount,
-  }));
+  const data = useMemo(() => {
+    const categoryTotals = expenses.reduce((acc, expense) => {
+      acc[expense.category] = (acc[expense.category] || 0) + expense.amount;
+      return acc;
+    }, {} as Record<string, number>);
+
+    return Object.entries(categoryTotals).map(([category, amount]) => ({
+      name: EXPENSE_CATEGORIES.find(c => c.value === category)?.label || category,
+      value: amount,
+    }));
+  }, [expenses]);
 
   const COLORS = [
-    'hsl(var(--chart-1))',
-    'hsl(var(--chart-2))',
-    'hsl(var(--chart-3))',
-    'hsl(var(--chart-4))',
-    'hsl(var(--chart-5))',
+    'hsl(var(--chart-1))', 'hsl(var(--chart-2))', 'hsl(var(--chart-3))',
+    'hsl(var(--chart-4))', 'hsl(var(--chart-5))',
   ];
 
   return (
@@ -40,22 +41,20 @@ export function ExpenseBreakdown() {
                 dataKey="value"
               >
                 {data.map((_, index) => (
-                  <Cell 
-                    key={`cell-${index}`} 
+                  <Cell
+                    key={`cell-${index}`}
                     fill={COLORS[index % COLORS.length]}
                     className="transition-opacity hover:opacity-80"
                   />
                 ))}
               </Pie>
-              <Tooltip 
+              <Tooltip
                 content={({ active, payload }) => {
                   if (active && payload && payload.length) {
                     return (
                       <div className="glass-card rounded-lg p-3">
                         <p className="text-sm font-medium">{payload[0].name}</p>
-                        <p className="text-lg font-bold">
-                          ${payload[0].value?.toLocaleString()}
-                        </p>
+                        <p className="text-lg font-bold">${payload[0].value?.toLocaleString()}</p>
                       </div>
                     );
                   }
@@ -69,7 +68,7 @@ export function ExpenseBreakdown() {
           {data.map((item, index) => (
             <div key={item.name} className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <div 
+                <div
                   className="h-3 w-3 rounded-full"
                   style={{ backgroundColor: COLORS[index % COLORS.length] }}
                 />

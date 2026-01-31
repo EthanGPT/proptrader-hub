@@ -1,0 +1,16 @@
+name = "proptracker-api"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+
+# R2 bucket binding
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "proptracker-data"
+
+[vars]
+# Set a shared secret so only your frontend can write data.
+# Override in production: wrangler secret put AUTH_TOKEN
+AUTH_TOKEN = "change-me-in-production"
+
+# Allow your GitHub Pages origin
+ALLOWED_ORIGIN = "https://ethangpt.github.io"

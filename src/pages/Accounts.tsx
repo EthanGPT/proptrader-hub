@@ -1,89 +1,81 @@
 import { useState } from "react";
 import { format } from "date-fns";
-import { Plus, Pencil, Trash2, CheckCircle2, XCircle, Clock } from "lucide-react";
-import { mockAccounts } from "@/data/mockData";
-import { PROP_FIRMS, ACCOUNT_SIZES, Account } from "@/types";
+import { Plus, Pencil, Trash2, CheckCircle2, XCircle, Clock, Wallet, AlertTriangle, LogOut } from "lucide-react";
+import { useData } from "@/context/DataContext";
+import { ACCOUNT_SIZES, Account, AccountType, EvaluationStatus, FundedStatus } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
+  Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
+const evalStatusConfig = {
+  passed: { icon: CheckCircle2, color: 'text-success', bg: 'bg-success/10', label: 'Passed' },
+  failed: { icon: XCircle, color: 'text-destructive', bg: 'bg-destructive/10', label: 'Failed' },
+  in_progress: { icon: Clock, color: 'text-warning', bg: 'bg-warning/10', label: 'In Progress' },
+} as const;
+
+const fundedStatusConfig = {
+  active: { icon: Wallet, color: 'text-success', bg: 'bg-success/10', label: 'Active' },
+  breached: { icon: AlertTriangle, color: 'text-destructive', bg: 'bg-destructive/10', label: 'Breached' },
+  withdrawn: { icon: LogOut, color: 'text-muted-foreground', bg: 'bg-secondary', label: 'Withdrawn' },
+} as const;
+
+function getStatusConfig(account: Account) {
+  if (account.type === 'funded') {
+    return fundedStatusConfig[account.status as FundedStatus] ?? fundedStatusConfig.active;
+  }
+  return evalStatusConfig[account.status as EvaluationStatus] ?? evalStatusConfig.in_progress;
+}
+
 const Accounts = () => {
-  const [accounts, setAccounts] = useState<Account[]>(mockAccounts);
+  const { accounts, addAccount, updateAccount, deleteAccount } = useData();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
+  const [defaultType, setDefaultType] = useState<AccountType>('evaluation');
 
-  const passedAccounts = accounts.filter(a => a.status === 'passed');
-  const failedAccounts = accounts.filter(a => a.status === 'failed');
-  const activeAccounts = accounts.filter(a => a.status === 'in_progress');
+  const evaluations = accounts.filter(a => a.type === 'evaluation');
+  const funded = accounts.filter(a => a.type === 'funded');
 
-  const successRate = passedAccounts.length + failedAccounts.length > 0
-    ? Math.round((passedAccounts.length / (passedAccounts.length + failedAccounts.length)) * 100)
-    : 0;
+  // Evaluation stats
+  const evalPassed = evaluations.filter(a => a.status === 'passed').length;
+  const evalFailed = evaluations.filter(a => a.status === 'failed').length;
+  const evalActive = evaluations.filter(a => a.status === 'in_progress').length;
+  const evalSuccessRate = evalPassed + evalFailed > 0
+    ? Math.round((evalPassed / (evalPassed + evalFailed)) * 100) : 0;
 
-  const handleDelete = (id: string) => {
-    setAccounts(accounts.filter(a => a.id !== id));
-  };
-
-  const statusConfig = {
-    passed: { icon: CheckCircle2, color: 'text-success', bg: 'bg-success/10', label: 'Passed' },
-    failed: { icon: XCircle, color: 'text-destructive', bg: 'bg-destructive/10', label: 'Failed' },
-    in_progress: { icon: Clock, color: 'text-warning', bg: 'bg-warning/10', label: 'In Progress' },
-  };
+  // Funded stats
+  const fundedActive = funded.filter(a => a.status === 'active').length;
+  const fundedBreached = funded.filter(a => a.status === 'breached').length;
+  const fundedWithdrawn = funded.filter(a => a.status === 'withdrawn').length;
+  const fundedTotalPL = funded.reduce((sum, a) => sum + a.profitLoss, 0);
 
   const renderAccountCard = (account: Account) => {
-    const config = statusConfig[account.status];
+    const config = getStatusConfig(account);
     const StatusIcon = config.icon;
-    
+
     return (
-      <div 
-        key={account.id}
-        className="stat-card group relative animate-scale-in"
-      >
-        {/* Actions */}
+      <div key={account.id} className="stat-card group relative animate-scale-in">
         <div className="absolute right-4 top-4 flex gap-2 opacity-0 transition-opacity group-hover:opacity-100">
-          <Button 
-            variant="ghost" 
-            size="icon"
-            onClick={() => {
-              setEditingAccount(account);
-              setIsDialogOpen(true);
-            }}
-          >
+          <Button variant="ghost" size="icon" onClick={() => { setEditingAccount(account); setIsDialogOpen(true); }}>
             <Pencil className="h-4 w-4" />
           </Button>
-          <Button 
-            variant="ghost" 
-            size="icon"
-            onClick={() => handleDelete(account.id)}
-          >
+          <Button variant="ghost" size="icon" onClick={() => deleteAccount(account.id)}>
             <Trash2 className="h-4 w-4 text-destructive" />
           </Button>
         </div>
 
-        {/* Header */}
         <div className="mb-4 flex items-start justify-between">
           <div>
             <h3 className="text-lg font-bold">{account.propFirm}</h3>
-            <p className="text-sm text-muted-foreground">
-              ${account.accountSize.toLocaleString()} account
-            </p>
+            <p className="text-sm text-muted-foreground">${account.accountSize.toLocaleString()} account</p>
           </div>
           <div className={cn("flex items-center gap-1.5 rounded-full px-3 py-1", config.bg)}>
             <StatusIcon className={cn("h-4 w-4", config.color)} />
@@ -91,7 +83,6 @@ const Accounts = () => {
           </div>
         </div>
 
-        {/* Details */}
         <div className="space-y-3 text-sm">
           <div className="flex justify-between">
             <span className="text-muted-foreground">Start Date</span>
@@ -105,16 +96,12 @@ const Accounts = () => {
           )}
           <div className="flex justify-between">
             <span className="text-muted-foreground">Profit/Loss</span>
-            <span className={cn(
-              "font-bold",
-              account.profitLoss >= 0 ? "text-success" : "text-destructive"
-            )}>
+            <span className={cn("font-bold", account.profitLoss >= 0 ? "text-success" : "text-destructive")}>
               {account.profitLoss >= 0 ? '+' : ''}${account.profitLoss.toLocaleString()}
             </span>
           </div>
         </div>
 
-        {/* Notes */}
         {account.notes && (
           <div className="mt-4 border-t pt-4">
             <p className="text-sm text-muted-foreground">{account.notes}</p>
@@ -124,97 +111,145 @@ const Accounts = () => {
     );
   };
 
+  const openAddDialog = (type: AccountType) => {
+    setDefaultType(type);
+    setEditingAccount(null);
+    setIsDialogOpen(true);
+  };
+
   return (
     <div className="space-y-8">
-      {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="animate-fade-in">
           <h1 className="text-3xl font-bold tracking-tight">Accounts</h1>
-          <p className="text-muted-foreground">Manage your prop firm accounts</p>
+          <p className="text-muted-foreground">Manage your evaluations and funded accounts</p>
         </div>
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogTrigger asChild>
-            <Button className="bg-accent text-accent-foreground hover:bg-accent/90">
-              <Plus className="mr-2 h-4 w-4" />
-              Add Account
-            </Button>
-          </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>
-                {editingAccount ? 'Edit Account' : 'Add New Account'}
-              </DialogTitle>
+              <DialogTitle>{editingAccount ? 'Edit Account' : 'Add New Account'}</DialogTitle>
             </DialogHeader>
-            <AccountForm 
-              onClose={() => {
-                setIsDialogOpen(false);
-                setEditingAccount(null);
-              }}
+            <AccountForm
+              onClose={() => { setIsDialogOpen(false); setEditingAccount(null); }}
               onSave={(account) => {
                 if (editingAccount) {
-                  setAccounts(accounts.map(a => a.id === account.id ? account : a));
+                  updateAccount(account);
                 } else {
-                  setAccounts([...accounts, { ...account, id: Date.now().toString() }]);
+                  addAccount(account);
                 }
                 setIsDialogOpen(false);
                 setEditingAccount(null);
               }}
               initialData={editingAccount}
+              defaultType={defaultType}
             />
           </DialogContent>
         </Dialog>
       </div>
 
-      {/* Stats */}
-      <div className="grid gap-4 sm:grid-cols-4">
-        <div className="stat-card text-center">
-          <p className="text-4xl font-bold text-success">{successRate}%</p>
-          <p className="text-sm text-muted-foreground">Success Rate</p>
+      {/* ── Evaluations Section ─────────────────────────────── */}
+      <section className="space-y-6">
+        <div className="flex items-center justify-between">
+          <h2 className="text-xl font-semibold">Evaluations</h2>
+          <Button onClick={() => openAddDialog('evaluation')} className="bg-accent text-accent-foreground hover:bg-accent/90">
+            <Plus className="mr-2 h-4 w-4" />
+            Add Evaluation
+          </Button>
         </div>
-        <div className="stat-card text-center">
-          <p className="text-4xl font-bold text-success">{passedAccounts.length}</p>
-          <p className="text-sm text-muted-foreground">Passed</p>
-        </div>
-        <div className="stat-card text-center">
-          <p className="text-4xl font-bold text-destructive">{failedAccounts.length}</p>
-          <p className="text-sm text-muted-foreground">Failed</p>
-        </div>
-        <div className="stat-card text-center">
-          <p className="text-4xl font-bold text-warning">{activeAccounts.length}</p>
-          <p className="text-sm text-muted-foreground">Active</p>
-        </div>
-      </div>
 
-      {/* Tabs */}
-      <Tabs defaultValue="all" className="animate-slide-up">
-        <TabsList className="mb-6">
-          <TabsTrigger value="all">All ({accounts.length})</TabsTrigger>
-          <TabsTrigger value="active">Active ({activeAccounts.length})</TabsTrigger>
-          <TabsTrigger value="passed">Passed ({passedAccounts.length})</TabsTrigger>
-          <TabsTrigger value="failed">Failed ({failedAccounts.length})</TabsTrigger>
-        </TabsList>
-        
-        <TabsContent value="all">
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {accounts.map(renderAccountCard)}
+        <div className="grid gap-4 sm:grid-cols-4">
+          <div className="stat-card text-center">
+            <p className="text-4xl font-bold text-success">{evalSuccessRate}%</p>
+            <p className="text-sm text-muted-foreground">Pass Rate</p>
           </div>
-        </TabsContent>
-        <TabsContent value="active">
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {activeAccounts.map(renderAccountCard)}
+          <div className="stat-card text-center">
+            <p className="text-4xl font-bold text-success">{evalPassed}</p>
+            <p className="text-sm text-muted-foreground">Passed</p>
           </div>
-        </TabsContent>
-        <TabsContent value="passed">
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {passedAccounts.map(renderAccountCard)}
+          <div className="stat-card text-center">
+            <p className="text-4xl font-bold text-destructive">{evalFailed}</p>
+            <p className="text-sm text-muted-foreground">Failed</p>
           </div>
-        </TabsContent>
-        <TabsContent value="failed">
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {failedAccounts.map(renderAccountCard)}
+          <div className="stat-card text-center">
+            <p className="text-4xl font-bold text-warning">{evalActive}</p>
+            <p className="text-sm text-muted-foreground">In Progress</p>
           </div>
-        </TabsContent>
-      </Tabs>
+        </div>
+
+        <Tabs defaultValue="all" className="animate-slide-up">
+          <TabsList className="mb-6">
+            <TabsTrigger value="all">All ({evaluations.length})</TabsTrigger>
+            <TabsTrigger value="active">In Progress ({evalActive})</TabsTrigger>
+            <TabsTrigger value="passed">Passed ({evalPassed})</TabsTrigger>
+            <TabsTrigger value="failed">Failed ({evalFailed})</TabsTrigger>
+          </TabsList>
+          <TabsContent value="all">
+            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">{evaluations.map(renderAccountCard)}</div>
+          </TabsContent>
+          <TabsContent value="active">
+            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">{evaluations.filter(a => a.status === 'in_progress').map(renderAccountCard)}</div>
+          </TabsContent>
+          <TabsContent value="passed">
+            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">{evaluations.filter(a => a.status === 'passed').map(renderAccountCard)}</div>
+          </TabsContent>
+          <TabsContent value="failed">
+            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">{evaluations.filter(a => a.status === 'failed').map(renderAccountCard)}</div>
+          </TabsContent>
+        </Tabs>
+      </section>
+
+      {/* ── Funded Section ──────────────────────────────────── */}
+      <section className="space-y-6">
+        <div className="flex items-center justify-between">
+          <h2 className="text-xl font-semibold">Funded Accounts</h2>
+          <Button onClick={() => openAddDialog('funded')} className="bg-accent text-accent-foreground hover:bg-accent/90">
+            <Plus className="mr-2 h-4 w-4" />
+            Add Funded Account
+          </Button>
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-4">
+          <div className="stat-card text-center">
+            <p className={cn("text-4xl font-bold", fundedTotalPL >= 0 ? "text-success" : "text-destructive")}>
+              ${fundedTotalPL.toLocaleString()}
+            </p>
+            <p className="text-sm text-muted-foreground">Total P/L</p>
+          </div>
+          <div className="stat-card text-center">
+            <p className="text-4xl font-bold text-success">{fundedActive}</p>
+            <p className="text-sm text-muted-foreground">Active</p>
+          </div>
+          <div className="stat-card text-center">
+            <p className="text-4xl font-bold text-destructive">{fundedBreached}</p>
+            <p className="text-sm text-muted-foreground">Breached</p>
+          </div>
+          <div className="stat-card text-center">
+            <p className="text-4xl font-bold text-muted-foreground">{fundedWithdrawn}</p>
+            <p className="text-sm text-muted-foreground">Withdrawn</p>
+          </div>
+        </div>
+
+        <Tabs defaultValue="all" className="animate-slide-up">
+          <TabsList className="mb-6">
+            <TabsTrigger value="all">All ({funded.length})</TabsTrigger>
+            <TabsTrigger value="active">Active ({fundedActive})</TabsTrigger>
+            <TabsTrigger value="breached">Breached ({fundedBreached})</TabsTrigger>
+            <TabsTrigger value="withdrawn">Withdrawn ({fundedWithdrawn})</TabsTrigger>
+          </TabsList>
+          <TabsContent value="all">
+            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">{funded.map(renderAccountCard)}</div>
+          </TabsContent>
+          <TabsContent value="active">
+            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">{funded.filter(a => a.status === 'active').map(renderAccountCard)}</div>
+          </TabsContent>
+          <TabsContent value="breached">
+            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">{funded.filter(a => a.status === 'breached').map(renderAccountCard)}</div>
+          </TabsContent>
+          <TabsContent value="withdrawn">
+            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">{funded.filter(a => a.status === 'withdrawn').map(renderAccountCard)}</div>
+          </TabsContent>
+        </Tabs>
+      </section>
     </div>
   );
 };
@@ -223,19 +258,29 @@ interface AccountFormProps {
   onClose: () => void;
   onSave: (account: Account) => void;
   initialData?: Account | null;
+  defaultType?: AccountType;
 }
 
-function AccountForm({ onClose, onSave, initialData }: AccountFormProps) {
+function AccountForm({ onClose, onSave, initialData, defaultType = 'evaluation' }: AccountFormProps) {
+  const { propFirms } = useData();
   const [formData, setFormData] = useState<Partial<Account>>(
     initialData || {
+      type: defaultType,
       propFirm: '',
       accountSize: 10000,
       startDate: new Date().toISOString().split('T')[0],
-      status: 'in_progress',
+      status: defaultType === 'funded' ? 'active' : 'in_progress',
       profitLoss: 0,
       notes: '',
     }
   );
+
+  const accountType = formData.type || 'evaluation';
+
+  const handleTypeChange = (type: AccountType) => {
+    const newStatus = type === 'funded' ? 'active' : 'in_progress';
+    setFormData({ ...formData, type, status: newStatus });
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -244,32 +289,32 @@ function AccountForm({ onClose, onSave, initialData }: AccountFormProps) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      <div className="space-y-2">
+        <Label>Account Type</Label>
+        <Select value={accountType} onValueChange={(v) => handleTypeChange(v as AccountType)}>
+          <SelectTrigger><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="evaluation">Evaluation</SelectItem>
+            <SelectItem value="funded">Funded</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
           <Label htmlFor="propFirm">Prop Firm</Label>
-          <Select
-            value={formData.propFirm}
-            onValueChange={(value) => setFormData({ ...formData, propFirm: value })}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="Select firm" />
-            </SelectTrigger>
+          <Select value={formData.propFirm} onValueChange={(value) => setFormData({ ...formData, propFirm: value })}>
+            <SelectTrigger><SelectValue placeholder="Select firm" /></SelectTrigger>
             <SelectContent>
-              {PROP_FIRMS.map((firm) => (
-                <SelectItem key={firm} value={firm}>{firm}</SelectItem>
+              {propFirms.map((firm) => (
+                <SelectItem key={firm.id} value={firm.name}>{firm.name}</SelectItem>
               ))}
             </SelectContent>
           </Select>
         </div>
         <div className="space-y-2">
           <Label htmlFor="accountSize">Account Size</Label>
-          <Select
-            value={formData.accountSize?.toString()}
-            onValueChange={(value) => setFormData({ ...formData, accountSize: parseInt(value) })}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="Select size" />
-            </SelectTrigger>
+          <Select value={formData.accountSize?.toString()} onValueChange={(value) => setFormData({ ...formData, accountSize: parseInt(value) })}>
+            <SelectTrigger><SelectValue placeholder="Select size" /></SelectTrigger>
             <SelectContent>
               {ACCOUNT_SIZES.map((size) => (
                 <SelectItem key={size} value={size.toString()}>${size.toLocaleString()}</SelectItem>
@@ -281,27 +326,26 @@ function AccountForm({ onClose, onSave, initialData }: AccountFormProps) {
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
           <Label htmlFor="startDate">Start Date</Label>
-          <Input
-            id="startDate"
-            type="date"
-            value={formData.startDate}
-            onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
-            required
-          />
+          <Input id="startDate" type="date" value={formData.startDate} onChange={(e) => setFormData({ ...formData, startDate: e.target.value })} required />
         </div>
         <div className="space-y-2">
           <Label htmlFor="status">Status</Label>
-          <Select
-            value={formData.status}
-            onValueChange={(value) => setFormData({ ...formData, status: value as Account['status'] })}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="Select status" />
-            </SelectTrigger>
+          <Select value={formData.status} onValueChange={(value) => setFormData({ ...formData, status: value as Account['status'] })}>
+            <SelectTrigger><SelectValue placeholder="Select status" /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="in_progress">In Progress</SelectItem>
-              <SelectItem value="passed">Passed</SelectItem>
-              <SelectItem value="failed">Failed</SelectItem>
+              {accountType === 'evaluation' ? (
+                <>
+                  <SelectItem value="in_progress">In Progress</SelectItem>
+                  <SelectItem value="passed">Passed</SelectItem>
+                  <SelectItem value="failed">Failed</SelectItem>
+                </>
+              ) : (
+                <>
+                  <SelectItem value="active">Active</SelectItem>
+                  <SelectItem value="breached">Breached</SelectItem>
+                  <SelectItem value="withdrawn">Withdrawn</SelectItem>
+                </>
+              )}
             </SelectContent>
           </Select>
         </div>
@@ -309,38 +353,19 @@ function AccountForm({ onClose, onSave, initialData }: AccountFormProps) {
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
           <Label htmlFor="endDate">End Date (optional)</Label>
-          <Input
-            id="endDate"
-            type="date"
-            value={formData.endDate || ''}
-            onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
-          />
+          <Input id="endDate" type="date" value={formData.endDate || ''} onChange={(e) => setFormData({ ...formData, endDate: e.target.value })} />
         </div>
         <div className="space-y-2">
           <Label htmlFor="profitLoss">Profit/Loss ($)</Label>
-          <Input
-            id="profitLoss"
-            type="number"
-            step="0.01"
-            value={formData.profitLoss}
-            onChange={(e) => setFormData({ ...formData, profitLoss: parseFloat(e.target.value) })}
-            required
-          />
+          <Input id="profitLoss" type="number" step="0.01" value={formData.profitLoss} onChange={(e) => setFormData({ ...formData, profitLoss: parseFloat(e.target.value) })} required />
         </div>
       </div>
       <div className="space-y-2">
         <Label htmlFor="notes">Notes</Label>
-        <Textarea
-          id="notes"
-          value={formData.notes}
-          onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-          placeholder="Optional notes..."
-        />
+        <Textarea id="notes" value={formData.notes} onChange={(e) => setFormData({ ...formData, notes: e.target.value })} placeholder="Optional notes..." />
       </div>
       <div className="flex justify-end gap-3">
-        <Button type="button" variant="outline" onClick={onClose}>
-          Cancel
-        </Button>
+        <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
         <Button type="submit" className="bg-accent text-accent-foreground hover:bg-accent/90">
           {initialData ? 'Update' : 'Add'} Account
         </Button>
