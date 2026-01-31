@@ -8,9 +8,7 @@ binding = "BUCKET"
 bucket_name = "proptracker-data"
 
 [vars]
-# Set a shared secret so only your frontend can write data.
-# Override in production: wrangler secret put AUTH_TOKEN
-AUTH_TOKEN = "change-me-in-production"
-
 # Comma-separated allowed origins (GitHub Pages + localhost dev)
 ALLOWED_ORIGINS = "https://ethangpt.github.io,http://localhost:5173,http://localhost:4173"
+
+# AUTH_TOKEN is set as a secret via: npx wrangler secret put AUTH_TOKEN
