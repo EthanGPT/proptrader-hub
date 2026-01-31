@@ -13,14 +13,17 @@
 export interface Env {
   BUCKET: R2Bucket;
   AUTH_TOKEN: string;
-  ALLOWED_ORIGIN: string;
+  ALLOWED_ORIGINS: string; // comma-separated list of origins
 }
 
 const DATA_KEY = 'proptracker.json';
 
-function cors(env: Env): Record<string, string> {
+function cors(env: Env, request: Request): Record<string, string> {
+  const origin = request.headers.get('Origin') || '';
+  const allowed = env.ALLOWED_ORIGINS.split(',').map(o => o.trim());
+  const matched = allowed.includes(origin) ? origin : allowed[0];
   return {
-    'Access-Control-Allow-Origin': env.ALLOWED_ORIGIN,
+    'Access-Control-Allow-Origin': matched,
     'Access-Control-Allow-Methods': 'GET, PUT, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Max-Age': '86400',
@@ -36,7 +39,7 @@ export default {
       return new Response('Not found', { status: 404 });
     }
 
-    const headers = cors(env);
+    const headers = cors(env, request);
 
     // CORS preflight
     if (request.method === 'OPTIONS') {

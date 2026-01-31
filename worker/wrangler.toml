@@ -12,5 +12,5 @@ bucket_name = "proptracker-data"
 # Override in production: wrangler secret put AUTH_TOKEN
 AUTH_TOKEN = "change-me-in-production"
 
-# Allow your GitHub Pages origin
-ALLOWED_ORIGIN = "https://ethangpt.github.io"
+# Comma-separated allowed origins (GitHub Pages + localhost dev)
+ALLOWED_ORIGINS = "https://ethangpt.github.io,http://localhost:5173,http://localhost:4173"

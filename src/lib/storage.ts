@@ -90,29 +90,40 @@ export function resetToDefaults(): void {
   seedIfNeeded();
 }
 
-// ── Optional R2 Sync ────────────────────────────────────────
+// ── R2 Cloud Sync ───────────────────────────────────────────
 
 const R2_API_URL = import.meta.env.VITE_R2_API_URL as string | undefined;
+const R2_AUTH_TOKEN = import.meta.env.VITE_R2_AUTH_TOKEN as string | undefined;
+
+export function isR2Configured(): boolean {
+  return Boolean(R2_API_URL && R2_AUTH_TOKEN);
+}
 
 export async function syncToR2(): Promise<void> {
-  if (!R2_API_URL) return;
+  if (!R2_API_URL || !R2_AUTH_TOKEN) return;
   const payload = {
     payouts: getPayouts(),
     expenses: getExpenses(),
     accounts: getAccounts(),
     propFirms: getPropFirms(),
   };
-  await fetch(`${R2_API_URL}/sync`, {
+  const res = await fetch(`${R2_API_URL}/sync`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${R2_AUTH_TOKEN}`,
+    },
     body: JSON.stringify(payload),
   });
+  if (!res.ok) throw new Error(`Sync failed: ${res.status}`);
 }
 
 export async function pullFromR2(): Promise<boolean> {
-  if (!R2_API_URL) return false;
+  if (!R2_API_URL || !R2_AUTH_TOKEN) return false;
   try {
-    const res = await fetch(`${R2_API_URL}/sync`);
+    const res = await fetch(`${R2_API_URL}/sync`, {
+      headers: { 'Authorization': `Bearer ${R2_AUTH_TOKEN}` },
+    });
     if (!res.ok) return false;
     const data = await res.json();
     if (data.payouts) setPayouts(data.payouts);

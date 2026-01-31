@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import { Payout, Expense, Account, PropFirm } from '@/types';
 import {
   initStorage,
@@ -6,7 +6,10 @@ import {
   getExpenses, setExpenses as persistExpenses,
   getAccounts, setAccounts as persistAccounts,
   getPropFirms, setPropFirms as persistPropFirms,
+  isR2Configured, syncToR2, pullFromR2,
 } from '@/lib/storage';
+
+export type SyncStatus = 'idle' | 'syncing' | 'synced' | 'error' | 'disabled';
 
 interface DataContextValue {
   // Payouts
@@ -32,6 +35,10 @@ interface DataContextValue {
   addPropFirm: (firm: Omit<PropFirm, 'id'>) => void;
   updatePropFirm: (firm: PropFirm) => void;
   deletePropFirm: (id: string) => void;
+
+  // Sync
+  syncStatus: SyncStatus;
+  triggerSync: () => Promise<void>;
 }
 
 const DataContext = createContext<DataContextValue | null>(null);
@@ -41,14 +48,65 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [expenses, _setExpenses] = useState<Expense[]>([]);
   const [accounts, _setAccounts] = useState<Account[]>([]);
   const [propFirms, _setPropFirms] = useState<PropFirm[]>([]);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>(
+    isR2Configured() ? 'idle' : 'disabled'
+  );
 
-  // Hydrate from localStorage on mount
+  const syncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Debounced auto-sync — pushes to R2 500ms after last mutation
+  const scheduleSync = useCallback(() => {
+    if (!isR2Configured()) return;
+    if (syncTimer.current) clearTimeout(syncTimer.current);
+    syncTimer.current = setTimeout(async () => {
+      setSyncStatus('syncing');
+      try {
+        await syncToR2();
+        setSyncStatus('synced');
+      } catch {
+        setSyncStatus('error');
+      }
+    }, 500);
+  }, []);
+
+  // Manual sync trigger
+  const triggerSync = useCallback(async () => {
+    if (!isR2Configured()) return;
+    setSyncStatus('syncing');
+    try {
+      await syncToR2();
+      setSyncStatus('synced');
+    } catch {
+      setSyncStatus('error');
+    }
+  }, []);
+
+  // Hydrate: init localStorage, then pull from R2 if configured
   useEffect(() => {
     initStorage();
-    _setPayouts(getPayouts());
-    _setExpenses(getExpenses());
-    _setAccounts(getAccounts());
-    _setPropFirms(getPropFirms());
+
+    const loadData = () => {
+      _setPayouts(getPayouts());
+      _setExpenses(getExpenses());
+      _setAccounts(getAccounts());
+      _setPropFirms(getPropFirms());
+    };
+
+    if (isR2Configured()) {
+      setSyncStatus('syncing');
+      pullFromR2().then((pulled) => {
+        if (pulled) {
+          // Re-read localStorage after R2 data was written into it
+          loadData();
+          setSyncStatus('synced');
+        } else {
+          loadData();
+          setSyncStatus('idle');
+        }
+      });
+    } else {
+      loadData();
+    }
   }, []);
 
   // ── Payouts ───────────────────────────────────────────────
@@ -58,7 +116,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
       persistPayouts(next);
       return next;
     });
-  }, []);
+    scheduleSync();
+  }, [scheduleSync]);
 
   const updatePayout = useCallback((payout: Payout) => {
     _setPayouts((prev) => {
@@ -66,7 +125,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
       persistPayouts(next);
       return next;
     });
-  }, []);
+    scheduleSync();
+  }, [scheduleSync]);
 
   const deletePayout = useCallback((id: string) => {
     _setPayouts((prev) => {
@@ -74,7 +134,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
       persistPayouts(next);
       return next;
     });
-  }, []);
+    scheduleSync();
+  }, [scheduleSync]);
 
   // ── Expenses ──────────────────────────────────────────────
   const addExpense = useCallback((expense: Omit<Expense, 'id'>) => {
@@ -83,7 +144,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
       persistExpenses(next);
       return next;
     });
-  }, []);
+    scheduleSync();
+  }, [scheduleSync]);
 
   const updateExpense = useCallback((expense: Expense) => {
     _setExpenses((prev) => {
@@ -91,7 +153,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
       persistExpenses(next);
       return next;
     });
-  }, []);
+    scheduleSync();
+  }, [scheduleSync]);
 
   const deleteExpense = useCallback((id: string) => {
     _setExpenses((prev) => {
@@ -99,7 +162,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
       persistExpenses(next);
       return next;
     });
-  }, []);
+    scheduleSync();
+  }, [scheduleSync]);
 
   // ── Accounts ──────────────────────────────────────────────
   const addAccount = useCallback((account: Omit<Account, 'id'>) => {
@@ -108,7 +172,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
       persistAccounts(next);
       return next;
     });
-  }, []);
+    scheduleSync();
+  }, [scheduleSync]);
 
   const updateAccount = useCallback((account: Account) => {
     _setAccounts((prev) => {
@@ -116,7 +181,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
       persistAccounts(next);
       return next;
     });
-  }, []);
+    scheduleSync();
+  }, [scheduleSync]);
 
   const deleteAccount = useCallback((id: string) => {
     _setAccounts((prev) => {
@@ -124,7 +190,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
       persistAccounts(next);
       return next;
     });
-  }, []);
+    scheduleSync();
+  }, [scheduleSync]);
 
   // ── Prop Firms ────────────────────────────────────────────
   const addPropFirm = useCallback((firm: Omit<PropFirm, 'id'>) => {
@@ -133,7 +200,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
       persistPropFirms(next);
       return next;
     });
-  }, []);
+    scheduleSync();
+  }, [scheduleSync]);
 
   const updatePropFirm = useCallback((firm: PropFirm) => {
     _setPropFirms((prev) => {
@@ -141,7 +209,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
       persistPropFirms(next);
       return next;
     });
-  }, []);
+    scheduleSync();
+  }, [scheduleSync]);
 
   const deletePropFirm = useCallback((id: string) => {
     _setPropFirms((prev) => {
@@ -149,7 +218,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
       persistPropFirms(next);
       return next;
     });
-  }, []);
+    scheduleSync();
+  }, [scheduleSync]);
 
   return (
     <DataContext.Provider
@@ -158,6 +228,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
         expenses, addExpense, updateExpense, deleteExpense,
         accounts, addAccount, updateAccount, deleteAccount,
         propFirms, addPropFirm, updatePropFirm, deletePropFirm,
+        syncStatus, triggerSync,
       }}
     >
       {children}
