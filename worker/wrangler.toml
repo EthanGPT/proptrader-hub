@@ -9,6 +9,6 @@ bucket_name = "proptracker-data"
 
 [vars]
 # Comma-separated allowed origins (GitHub Pages + localhost dev)
-ALLOWED_ORIGINS = "https://ethangpt.github.io,http://localhost:5173,http://localhost:4173"
+ALLOWED_ORIGINS = "https://ethangpt.github.io,http://localhost:5173,http://localhost:4173,http://localhost:8080"
 
 # AUTH_TOKEN is set as a secret via: npx wrangler secret put AUTH_TOKEN
