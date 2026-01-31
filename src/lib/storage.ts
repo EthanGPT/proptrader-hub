@@ -92,8 +92,8 @@ export function resetToDefaults(): void {
 
 // ── R2 Cloud Sync ───────────────────────────────────────────
 
-const R2_API_URL = import.meta.env.VITE_R2_API_URL as string | undefined;
-const R2_AUTH_TOKEN = import.meta.env.VITE_R2_AUTH_TOKEN as string | undefined;
+const R2_API_URL = (import.meta.env.VITE_R2_API_URL as string | undefined)?.trim();
+const R2_AUTH_TOKEN = (import.meta.env.VITE_R2_AUTH_TOKEN as string | undefined)?.trim();
 
 export function isR2Configured(): boolean {
   return Boolean(R2_API_URL && R2_AUTH_TOKEN);
