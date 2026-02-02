@@ -5,6 +5,7 @@ import {
   Wallet,
   Building2,
   BarChart3,
+  CalendarDays,
   TrendingUp,
   Cloud,
   CloudOff,
@@ -33,6 +34,7 @@ const navItems = [
   { title: "Expenses", url: "/expenses", icon: Receipt },
   { title: "Accounts", url: "/accounts", icon: Wallet },
   { title: "Prop Firms", url: "/prop-firms", icon: Building2 },
+  { title: "Calendar", url: "/calendar", icon: CalendarDays },
   { title: "Reports", url: "/reports", icon: BarChart3 },
 ];
 

@@ -69,6 +69,13 @@ export const EXPENSE_CATEGORIES = [
   { value: 'other', label: 'Other' },
 ] as const;
 
+export interface DailyEntry {
+  id: string;
+  date: string; // YYYY-MM-DD
+  pnl?: number;
+  notes?: string;
+}
+
 export const ACCOUNT_SIZES = [
   5000, 10000, 25000, 50000, 100000, 200000, 400000
 ] as const;

@@ -1,5 +1,5 @@
-import { Payout, Expense, Account, PropFirm } from '@/types';
-import { mockPayouts, mockExpenses, mockAccounts, mockPropFirms } from '@/data/mockData';
+import { Payout, Expense, Account, PropFirm, DailyEntry } from '@/types';
+import { mockPayouts, mockExpenses, mockAccounts, mockPropFirms, mockDailyEntries } from '@/data/mockData';
 
 const STORAGE_PREFIX = 'proptracker_';
 
@@ -8,6 +8,7 @@ const KEYS = {
   expenses: `${STORAGE_PREFIX}expenses`,
   accounts: `${STORAGE_PREFIX}accounts`,
   propFirms: `${STORAGE_PREFIX}propfirms`,
+  dailyEntries: `${STORAGE_PREFIX}daily_entries`,
   initialized: `${STORAGE_PREFIX}initialized`,
 } as const;
 
@@ -32,6 +33,7 @@ function seedIfNeeded(): void {
   write(KEYS.expenses, mockExpenses);
   write(KEYS.accounts, mockAccounts);
   write(KEYS.propFirms, mockPropFirms);
+  write(KEYS.dailyEntries, mockDailyEntries);
   localStorage.setItem(KEYS.initialized, '1');
 }
 
@@ -83,6 +85,13 @@ export function setPropFirms(data: PropFirm[]): void {
   write(KEYS.propFirms, data);
 }
 
+export function getDailyEntries(): DailyEntry[] {
+  return read<DailyEntry[]>(KEYS.dailyEntries) ?? [];
+}
+export function setDailyEntries(data: DailyEntry[]): void {
+  write(KEYS.dailyEntries, data);
+}
+
 /** Clear all stored data and re-seed from mock data */
 export function resetToDefaults(): void {
   localStorage.removeItem(KEYS.initialized);
@@ -106,6 +115,7 @@ export async function syncToR2(): Promise<void> {
     expenses: getExpenses(),
     accounts: getAccounts(),
     propFirms: getPropFirms(),
+    dailyEntries: getDailyEntries(),
   };
   const res = await fetch(`${R2_API_URL}/sync`, {
     method: 'PUT',
@@ -130,6 +140,7 @@ export async function pullFromR2(): Promise<boolean> {
     if (data.expenses) setExpenses(data.expenses);
     if (data.accounts) setAccounts(data.accounts);
     if (data.propFirms) setPropFirms(data.propFirms);
+    if (data.dailyEntries) setDailyEntries(data.dailyEntries);
     return true;
   } catch {
     return false;

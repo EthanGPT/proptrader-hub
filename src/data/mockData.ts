@@ -1,4 +1,4 @@
-import { Payout, Expense, Account, PropFirm } from '@/types';
+import { Payout, Expense, Account, PropFirm, DailyEntry } from '@/types';
 
 export const mockPayouts: Payout[] = [
   { id: '1', date: '2025-01-15', amount: 2500, propFirm: 'FTMO', method: 'bank_transfer', notes: 'First payout!' },
@@ -41,6 +41,19 @@ export const mockPropFirms: PropFirm[] = [
   { id: '2', name: 'FundedNext', website: 'https://fundednext.com', notes: 'Fast payouts', rating: 4, totalPayouts: 6300 },
   { id: '3', name: 'The5ers', website: 'https://the5ers.com', notes: 'Good scaling plan', rating: 4, totalPayouts: 1500 },
   { id: '4', name: 'E8 Funding', website: 'https://e8funding.com', notes: 'Affordable challenges', rating: 3, totalPayouts: 1200 },
+];
+
+export const mockDailyEntries: DailyEntry[] = [
+  { id: 'd1', date: '2025-01-27', pnl: 450, notes: 'Clean NQ setup, took 2 trades' },
+  { id: 'd2', date: '2025-01-28', pnl: -120, notes: 'Overtraded, need more patience' },
+  { id: 'd3', date: '2025-01-29', pnl: 680, notes: 'Perfect ES long from FVG' },
+  { id: 'd4', date: '2025-01-30', pnl: 0, notes: 'No setups, sat on hands' },
+  { id: 'd5', date: '2025-01-31', pnl: 320 },
+  { id: 'd6', date: '2025-01-24', pnl: -250, notes: 'Revenge traded after first loss' },
+  { id: 'd7', date: '2025-01-23', pnl: 890, notes: 'Best day this month' },
+  { id: 'd8', date: '2025-01-22', pnl: 150 },
+  { id: 'd9', date: '2025-01-21', pnl: -80 },
+  { id: 'd10', date: '2025-01-20', pnl: 560, notes: 'Solid trend day' },
 ];
 
 // Monthly payout data for charts

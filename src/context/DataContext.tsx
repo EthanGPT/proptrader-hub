@@ -1,11 +1,12 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
-import { Payout, Expense, Account, PropFirm } from '@/types';
+import { Payout, Expense, Account, PropFirm, DailyEntry } from '@/types';
 import {
   initStorage,
   getPayouts, setPayouts as persistPayouts,
   getExpenses, setExpenses as persistExpenses,
   getAccounts, setAccounts as persistAccounts,
   getPropFirms, setPropFirms as persistPropFirms,
+  getDailyEntries, setDailyEntries as persistDailyEntries,
   isR2Configured, syncToR2, pullFromR2,
 } from '@/lib/storage';
 
@@ -36,6 +37,11 @@ interface DataContextValue {
   updatePropFirm: (firm: PropFirm) => void;
   deletePropFirm: (id: string) => void;
 
+  // Daily Entries
+  dailyEntries: DailyEntry[];
+  upsertDailyEntry: (entry: Omit<DailyEntry, 'id'>) => void;
+  deleteDailyEntry: (id: string) => void;
+
   // Sync
   syncStatus: SyncStatus;
   triggerSync: () => Promise<void>;
@@ -48,6 +54,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [expenses, _setExpenses] = useState<Expense[]>([]);
   const [accounts, _setAccounts] = useState<Account[]>([]);
   const [propFirms, _setPropFirms] = useState<PropFirm[]>([]);
+  const [dailyEntries, _setDailyEntries] = useState<DailyEntry[]>([]);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>(
     isR2Configured() ? 'idle' : 'disabled'
   );
@@ -90,6 +97,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       _setExpenses(getExpenses());
       _setAccounts(getAccounts());
       _setPropFirms(getPropFirms());
+      _setDailyEntries(getDailyEntries());
     };
 
     if (isR2Configured()) {
@@ -221,6 +229,31 @@ export function DataProvider({ children }: { children: ReactNode }) {
     scheduleSync();
   }, [scheduleSync]);
 
+  // ── Daily Entries ──────────────────────────────────────────
+  const upsertDailyEntry = useCallback((entry: Omit<DailyEntry, 'id'>) => {
+    _setDailyEntries((prev) => {
+      const existing = prev.find((e) => e.date === entry.date);
+      let next: DailyEntry[];
+      if (existing) {
+        next = prev.map((e) => (e.date === entry.date ? { ...e, ...entry } : e));
+      } else {
+        next = [...prev, { ...entry, id: crypto.randomUUID() } as DailyEntry];
+      }
+      persistDailyEntries(next);
+      return next;
+    });
+    scheduleSync();
+  }, [scheduleSync]);
+
+  const deleteDailyEntry = useCallback((id: string) => {
+    _setDailyEntries((prev) => {
+      const next = prev.filter((e) => e.id !== id);
+      persistDailyEntries(next);
+      return next;
+    });
+    scheduleSync();
+  }, [scheduleSync]);
+
   return (
     <DataContext.Provider
       value={{
@@ -228,6 +261,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
         expenses, addExpense, updateExpense, deleteExpense,
         accounts, addAccount, updateAccount, deleteAccount,
         propFirms, addPropFirm, updatePropFirm, deletePropFirm,
+        dailyEntries, upsertDailyEntry, deleteDailyEntry,
         syncStatus, triggerSync,
       }}
     >
