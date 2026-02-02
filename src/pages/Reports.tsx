@@ -150,9 +150,9 @@ const Reports = () => {
   return (
     <div className="space-y-8">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="animate-fade-in">
-          <h1 className="text-3xl font-bold tracking-tight">Reports</h1>
-          <p className="text-muted-foreground">Analytics and performance reports</p>
+        <div>
+          <h1 className="page-title">Reports</h1>
+          <p className="page-subtitle">Analytics and performance reports</p>
         </div>
         <div className="flex gap-3">
           <Button variant="outline" onClick={handleExportCSV}>
@@ -162,7 +162,7 @@ const Reports = () => {
         </div>
       </div>
 
-      <div className="stat-card animate-fade-in">
+      <div className="stat-card">
         <div className="flex flex-wrap items-end gap-4">
           <div className="space-y-2">
             <Label>Date Range</Label>
@@ -210,15 +210,15 @@ const Reports = () => {
       </div>
 
       <div className="grid gap-6 sm:grid-cols-3">
-        <div className="stat-card animate-slide-up text-center">
+        <div className="stat-card text-center">
           <p className="text-sm text-muted-foreground">Total Payouts</p>
           <p className="text-3xl font-bold text-success">${totalPayouts.toLocaleString()}</p>
         </div>
-        <div className="stat-card animate-slide-up text-center">
+        <div className="stat-card text-center">
           <p className="text-sm text-muted-foreground">Total Expenses</p>
           <p className="text-3xl font-bold text-destructive">${totalExpenses.toLocaleString()}</p>
         </div>
-        <div className="stat-card animate-slide-up text-center">
+        <div className="stat-card text-center">
           <p className="text-sm text-muted-foreground">Net Profit</p>
           <p className={`text-3xl font-bold ${netProfit >= 0 ? 'text-success' : 'text-destructive'}`}>
             ${netProfit.toLocaleString()}
@@ -227,7 +227,7 @@ const Reports = () => {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <div className="stat-card animate-slide-up">
+        <div className="stat-card">
           <h3 className="mb-6 text-lg font-semibold">Payouts by Firm</h3>
           <div className="h-[300px]">
             <ResponsiveContainer width="100%" height="100%">
@@ -238,7 +238,7 @@ const Reports = () => {
                   content={({ active, payload }) => {
                     if (active && payload && payload.length) {
                       return (
-                        <div className="glass-card rounded-lg p-3">
+                        <div className="tooltip-card">
                           <p className="text-sm font-medium">{payload[0].payload.name}</p>
                           <p className="text-lg font-bold text-success">${payload[0].value?.toLocaleString()}</p>
                         </div>
@@ -253,7 +253,7 @@ const Reports = () => {
           </div>
         </div>
 
-        <div className="stat-card animate-slide-up">
+        <div className="stat-card">
           <h3 className="mb-6 text-lg font-semibold">Expenses by Category</h3>
           <div className="h-[300px]">
             <ResponsiveContainer width="100%" height="100%">
@@ -264,7 +264,7 @@ const Reports = () => {
                   content={({ active, payload }) => {
                     if (active && payload && payload.length) {
                       return (
-                        <div className="glass-card rounded-lg p-3">
+                        <div className="tooltip-card">
                           <p className="text-sm font-medium">{payload[0].payload.name}</p>
                           <p className="text-lg font-bold text-destructive">${payload[0].value?.toLocaleString()}</p>
                         </div>
@@ -280,7 +280,7 @@ const Reports = () => {
         </div>
       </div>
 
-      <div className="stat-card animate-slide-up">
+      <div className="stat-card">
         <h3 className="mb-6 text-lg font-semibold">Monthly Performance</h3>
         <div className="h-[350px]">
           <ResponsiveContainer width="100%" height="100%">
@@ -291,7 +291,7 @@ const Reports = () => {
                 content={({ active, payload, label }) => {
                   if (active && payload && payload.length) {
                     return (
-                      <div className="glass-card rounded-lg p-3">
+                      <div className="tooltip-card">
                         <p className="mb-2 text-sm font-medium">{label}</p>
                         <p className="text-sm text-success">Payouts: ${payload[0].value?.toLocaleString()}</p>
                         <p className="text-sm text-destructive">Expenses: ${payload[1]?.value?.toLocaleString()}</p>
@@ -302,8 +302,8 @@ const Reports = () => {
                 }}
               />
               <Legend />
-              <Line type="monotone" dataKey="payouts" stroke="hsl(var(--success))" strokeWidth={3} dot={{ fill: 'hsl(var(--success))' }} name="Payouts" />
-              <Line type="monotone" dataKey="expenses" stroke="hsl(var(--destructive))" strokeWidth={3} dot={{ fill: 'hsl(var(--destructive))' }} name="Expenses" />
+              <Line type="monotone" dataKey="payouts" stroke="hsl(var(--success))" strokeWidth={1.5} dot={{ fill: 'hsl(var(--success))' }} name="Payouts" />
+              <Line type="monotone" dataKey="expenses" stroke="hsl(var(--destructive))" strokeWidth={1.5} dot={{ fill: 'hsl(var(--destructive))' }} name="Expenses" />
             </LineChart>
           </ResponsiveContainer>
         </div>

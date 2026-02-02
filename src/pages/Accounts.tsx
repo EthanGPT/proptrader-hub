@@ -62,7 +62,7 @@ const Accounts = () => {
     const StatusIcon = config.icon;
 
     return (
-      <div key={account.id} className="stat-card group relative animate-scale-in">
+      <div key={account.id} className="stat-card group relative">
         <div className="absolute right-4 top-4 flex gap-2 opacity-0 transition-opacity group-hover:opacity-100">
           <Button variant="ghost" size="icon" onClick={() => { setEditingAccount(account); setIsDialogOpen(true); }}>
             <Pencil className="h-4 w-4" />
@@ -74,11 +74,11 @@ const Accounts = () => {
 
         <div className="mb-4 flex items-start justify-between">
           <div>
-            <h3 className="text-lg font-bold">{account.propFirm}</h3>
+            <h3 className="text-lg font-semibold">{account.propFirm}</h3>
             <p className="text-sm text-muted-foreground">${account.accountSize.toLocaleString()} account</p>
           </div>
-          <div className={cn("flex items-center gap-1.5 rounded-full px-3 py-1", config.bg)}>
-            <StatusIcon className={cn("h-4 w-4", config.color)} />
+          <div className="flex items-center gap-1.5">
+            <StatusIcon className={cn("h-3.5 w-3.5", config.color)} />
             <span className={cn("text-sm font-medium", config.color)}>{config.label}</span>
           </div>
         </div>
@@ -100,6 +100,64 @@ const Accounts = () => {
               {account.profitLoss >= 0 ? '+' : ''}${account.profitLoss.toLocaleString()}
             </span>
           </div>
+
+          {/* Drawdown progress */}
+          {account.maxDrawdown != null && account.maxDrawdown > 0 && (
+            <div className="space-y-1">
+              <div className="flex justify-between text-[10px]">
+                <span className="text-muted-foreground">Drawdown</span>
+                <span className={cn(
+                  "font-semibold tabular-nums",
+                  account.profitLoss < 0
+                    ? Math.abs(account.profitLoss) >= account.maxDrawdown ? "text-destructive" : "text-warning"
+                    : "text-muted-foreground"
+                )}>
+                  ${Math.max(0, Math.abs(Math.min(0, account.profitLoss))).toLocaleString()} / ${account.maxDrawdown.toLocaleString()}
+                </span>
+              </div>
+              <div className="h-1.5 overflow-hidden rounded-full bg-secondary">
+                <div
+                  className={cn(
+                    "h-full rounded-full transition-all duration-500",
+                    account.profitLoss >= 0
+                      ? "bg-muted-foreground/20"
+                      : Math.abs(account.profitLoss) >= account.maxDrawdown
+                        ? "bg-destructive"
+                        : Math.abs(account.profitLoss) >= account.maxDrawdown * 0.7
+                          ? "bg-warning"
+                          : "bg-muted-foreground/40"
+                  )}
+                  style={{ width: `${Math.min(100, account.profitLoss < 0 ? (Math.abs(account.profitLoss) / account.maxDrawdown) * 100 : 0)}%` }}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Profit target progress (eval only) */}
+          {account.type === 'evaluation' && account.profitTarget != null && account.profitTarget > 0 && (
+            <div className="space-y-1">
+              <div className="flex justify-between text-[10px]">
+                <span className="text-muted-foreground">Target</span>
+                <span className={cn(
+                  "font-semibold tabular-nums",
+                  account.profitLoss >= account.profitTarget ? "text-success" : "text-muted-foreground"
+                )}>
+                  ${Math.max(0, account.profitLoss).toLocaleString()} / ${account.profitTarget.toLocaleString()}
+                </span>
+              </div>
+              <div className="h-1.5 overflow-hidden rounded-full bg-secondary">
+                <div
+                  className={cn(
+                    "h-full rounded-full transition-all duration-500",
+                    account.profitLoss >= account.profitTarget
+                      ? "bg-success"
+                      : "bg-accent/60"
+                  )}
+                  style={{ width: `${Math.min(100, account.profitLoss > 0 ? (account.profitLoss / account.profitTarget) * 100 : 0)}%` }}
+                />
+              </div>
+            </div>
+          )}
         </div>
 
         {account.notes && (
@@ -120,9 +178,9 @@ const Accounts = () => {
   return (
     <div className="space-y-8">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="animate-fade-in">
-          <h1 className="text-3xl font-bold tracking-tight">Accounts</h1>
-          <p className="text-muted-foreground">Manage your evaluations and funded accounts</p>
+        <div>
+          <h1 className="page-title">Accounts</h1>
+          <p className="page-subtitle">Manage your evaluations and funded accounts</p>
         </div>
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogContent>
@@ -176,7 +234,7 @@ const Accounts = () => {
           </div>
         </div>
 
-        <Tabs defaultValue="all" className="animate-slide-up">
+        <Tabs defaultValue="all">
           <TabsList className="mb-6">
             <TabsTrigger value="all">All ({evaluations.length})</TabsTrigger>
             <TabsTrigger value="active">In Progress ({evalActive})</TabsTrigger>
@@ -229,7 +287,7 @@ const Accounts = () => {
           </div>
         </div>
 
-        <Tabs defaultValue="all" className="animate-slide-up">
+        <Tabs defaultValue="all">
           <TabsList className="mb-6">
             <TabsTrigger value="all">All ({funded.length})</TabsTrigger>
             <TabsTrigger value="active">Active ({fundedActive})</TabsTrigger>
@@ -271,6 +329,8 @@ function AccountForm({ onClose, onSave, initialData, defaultType = 'evaluation' 
       startDate: new Date().toISOString().split('T')[0],
       status: defaultType === 'funded' ? 'active' : 'in_progress',
       profitLoss: 0,
+      maxDrawdown: undefined,
+      profitTarget: undefined,
       notes: '',
     }
   );
@@ -322,6 +382,36 @@ function AccountForm({ onClose, onSave, initialData, defaultType = 'evaluation' 
             </SelectContent>
           </Select>
         </div>
+      </div>
+      <div className={cn("grid gap-4", accountType === 'evaluation' ? "sm:grid-cols-2" : "sm:grid-cols-1")}>
+        <div className="space-y-2">
+          <Label htmlFor="maxDrawdown">Max Drawdown ($)</Label>
+          <Input
+            id="maxDrawdown"
+            type="number"
+            step="0.01"
+            min="0"
+            placeholder="e.g. 1500"
+            value={formData.maxDrawdown ?? ''}
+            onChange={(e) => setFormData({ ...formData, maxDrawdown: e.target.value ? parseFloat(e.target.value) : undefined })}
+          />
+          <p className="text-[10px] text-muted-foreground">Auto-fails/breaches when loss hits this amount</p>
+        </div>
+        {accountType === 'evaluation' && (
+          <div className="space-y-2">
+            <Label htmlFor="profitTarget">Profit Target ($)</Label>
+            <Input
+              id="profitTarget"
+              type="number"
+              step="0.01"
+              min="0"
+              placeholder="e.g. 3000"
+              value={formData.profitTarget ?? ''}
+              onChange={(e) => setFormData({ ...formData, profitTarget: e.target.value ? parseFloat(e.target.value) : undefined })}
+            />
+            <p className="text-[10px] text-muted-foreground">Auto-passes when profit reaches this amount</p>
+          </div>
+        )}
       </div>
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">

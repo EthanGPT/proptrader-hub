@@ -30,9 +30,9 @@ const PropFirms = () => {
   return (
     <div className="space-y-8">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="animate-fade-in">
-          <h1 className="text-3xl font-bold tracking-tight">Prop Firms</h1>
-          <p className="text-muted-foreground">Your prop firm directory</p>
+        <div>
+          <h1 className="page-title">Prop Firms</h1>
+          <p className="page-subtitle">Your prop firm directory</p>
         </div>
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
@@ -64,7 +64,7 @@ const PropFirms = () => {
 
       <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
         {propFirms.map((firm) => (
-          <div key={firm.id} className="stat-card group relative animate-scale-in">
+          <div key={firm.id} className="stat-card group relative">
             <div className="absolute right-4 top-4 flex gap-2 opacity-0 transition-opacity group-hover:opacity-100">
               <Button variant="ghost" size="icon" onClick={() => { setEditingFirm(firm); setIsDialogOpen(true); }}>
                 <Pencil className="h-4 w-4" />
@@ -75,13 +75,13 @@ const PropFirms = () => {
             </div>
 
             <div className="mb-4">
-              <h3 className="text-xl font-bold">{firm.name}</h3>
+              <h3 className="text-lg font-semibold">{firm.name}</h3>
               {renderStars(firm.rating)}
             </div>
 
-            <div className="mb-4 rounded-lg bg-success/10 p-4">
-              <p className="text-sm text-muted-foreground">Total Payouts</p>
-              <p className="text-2xl font-bold text-success">${firm.totalPayouts.toLocaleString()}</p>
+            <div className="mb-4">
+              <p className="section-label">Total Payouts</p>
+              <p className="text-2xl font-semibold text-success">${firm.totalPayouts.toLocaleString()}</p>
             </div>
 
             {firm.website && (

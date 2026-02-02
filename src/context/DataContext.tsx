@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
-import { Payout, Expense, Account, PropFirm, DailyEntry } from '@/types';
+import { Payout, Expense, Account, PropFirm, DailyEntry, TradingSetup, Trade } from '@/types';
 import {
   initStorage,
   getPayouts, setPayouts as persistPayouts,
@@ -7,6 +7,8 @@ import {
   getAccounts, setAccounts as persistAccounts,
   getPropFirms, setPropFirms as persistPropFirms,
   getDailyEntries, setDailyEntries as persistDailyEntries,
+  getTradingSetups, setTradingSetups as persistTradingSetups,
+  getTrades, setTrades as persistTrades,
   isR2Configured, syncToR2, pullFromR2,
 } from '@/lib/storage';
 
@@ -42,6 +44,18 @@ interface DataContextValue {
   upsertDailyEntry: (entry: Omit<DailyEntry, 'id'>) => void;
   deleteDailyEntry: (id: string) => void;
 
+  // Trading Setups
+  tradingSetups: TradingSetup[];
+  addTradingSetup: (setup: Omit<TradingSetup, 'id'>) => void;
+  updateTradingSetup: (setup: TradingSetup) => void;
+  deleteTradingSetup: (id: string) => void;
+
+  // Trades
+  trades: Trade[];
+  addTrade: (trade: Omit<Trade, 'id'>) => void;
+  updateTrade: (trade: Trade) => void;
+  deleteTrade: (id: string) => void;
+
   // Sync
   syncStatus: SyncStatus;
   triggerSync: () => Promise<void>;
@@ -49,12 +63,85 @@ interface DataContextValue {
 
 const DataContext = createContext<DataContextValue | null>(null);
 
+// ── Account P&L recalculation from trades ─────────────────────
+// "Active trading accounts" = funded+active OR evaluation+in_progress.
+// Only recalculates accounts that have at least one linked trade.
+// Accounts with no trades keep their manual profitLoss.
+function recalcAccountPnl(accounts: Account[], allTrades: Trade[]): Account[] {
+  const tradingIds = accounts
+    .filter(a =>
+      (a.type === 'funded' && a.status === 'active') ||
+      (a.type === 'evaluation' && a.status === 'in_progress')
+    )
+    .map(a => a.id);
+  const splitCount = tradingIds.length;
+  const hasSplitTrades = allTrades.some(t => t.accountId === 'split');
+
+  return accounts.map(account => {
+    const directTrades = allTrades.filter(t => t.accountId === account.id);
+    const hasDirectTrades = directTrades.length > 0;
+    const isSplitTarget = tradingIds.includes(account.id) && hasSplitTrades;
+
+    // Only recalc if this account has linked trades
+    if (!hasDirectTrades && !isSplitTarget) return account;
+
+    const directPnl = directTrades.reduce((sum, t) => sum + t.pnl, 0);
+
+    let splitPnl = 0;
+    if (isSplitTarget && splitCount > 0) {
+      splitPnl = allTrades
+        .filter(t => t.accountId === 'split')
+        .reduce((sum, t) => sum + (t.pnl / splitCount), 0);
+    }
+
+    const newPnl = Math.round((directPnl + splitPnl) * 100) / 100;
+    const today = new Date().toISOString().split('T')[0];
+
+    let newStatus = account.status;
+    let newEndDate = account.endDate;
+
+    // Auto-breach / auto-fail on drawdown
+    if (
+      account.maxDrawdown != null &&
+      newPnl <= -account.maxDrawdown
+    ) {
+      if (account.type === 'evaluation' && account.status === 'in_progress') {
+        newStatus = 'failed';
+        newEndDate = today;
+      } else if (account.type === 'funded' && account.status === 'active') {
+        newStatus = 'breached';
+        newEndDate = today;
+      }
+    }
+
+    // Auto-pass evaluation on profit target
+    if (
+      account.type === 'evaluation' &&
+      account.status === 'in_progress' &&
+      account.profitTarget != null &&
+      newPnl >= account.profitTarget
+    ) {
+      newStatus = 'passed';
+      newEndDate = today;
+    }
+
+    return {
+      ...account,
+      profitLoss: newPnl,
+      status: newStatus,
+      endDate: newEndDate,
+    };
+  });
+}
+
 export function DataProvider({ children }: { children: ReactNode }) {
   const [payouts, _setPayouts] = useState<Payout[]>([]);
   const [expenses, _setExpenses] = useState<Expense[]>([]);
   const [accounts, _setAccounts] = useState<Account[]>([]);
   const [propFirms, _setPropFirms] = useState<PropFirm[]>([]);
   const [dailyEntries, _setDailyEntries] = useState<DailyEntry[]>([]);
+  const [tradingSetups, _setTradingSetups] = useState<TradingSetup[]>([]);
+  const [trades, _setTrades] = useState<Trade[]>([]);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>(
     isR2Configured() ? 'idle' : 'disabled'
   );
@@ -88,6 +175,16 @@ export function DataProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // Helper: recalculate account P&L from persisted trades and update accounts
+  const refreshAccountPnl = useCallback(() => {
+    const latestTrades = getTrades();
+    _setAccounts((prevAccounts) => {
+      const next = recalcAccountPnl(prevAccounts, latestTrades);
+      persistAccounts(next);
+      return next;
+    });
+  }, []);
+
   // Hydrate: init localStorage, then pull from R2 if configured
   useEffect(() => {
     initStorage();
@@ -98,6 +195,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
       _setAccounts(getAccounts());
       _setPropFirms(getPropFirms());
       _setDailyEntries(getDailyEntries());
+      _setTradingSetups(getTradingSetups());
+      _setTrades(getTrades());
     };
 
     if (isR2Configured()) {
@@ -254,6 +353,66 @@ export function DataProvider({ children }: { children: ReactNode }) {
     scheduleSync();
   }, [scheduleSync]);
 
+  // ── Trading Setups ─────────────────────────────────────────
+  const addTradingSetup = useCallback((setup: Omit<TradingSetup, 'id'>) => {
+    _setTradingSetups((prev) => {
+      const next = [...prev, { ...setup, id: crypto.randomUUID() } as TradingSetup];
+      persistTradingSetups(next);
+      return next;
+    });
+    scheduleSync();
+  }, [scheduleSync]);
+
+  const updateTradingSetup = useCallback((setup: TradingSetup) => {
+    _setTradingSetups((prev) => {
+      const next = prev.map((s) => (s.id === setup.id ? setup : s));
+      persistTradingSetups(next);
+      return next;
+    });
+    scheduleSync();
+  }, [scheduleSync]);
+
+  const deleteTradingSetup = useCallback((id: string) => {
+    _setTradingSetups((prev) => {
+      const next = prev.filter((s) => s.id !== id);
+      persistTradingSetups(next);
+      return next;
+    });
+    scheduleSync();
+  }, [scheduleSync]);
+
+  // ── Trades ─────────────────────────────────────────────────
+  // After every trade mutation, recalculate linked account P&L.
+  const addTrade = useCallback((trade: Omit<Trade, 'id'>) => {
+    _setTrades((prev) => {
+      const next = [...prev, { ...trade, id: crypto.randomUUID() } as Trade];
+      persistTrades(next);
+      return next;
+    });
+    refreshAccountPnl();
+    scheduleSync();
+  }, [scheduleSync, refreshAccountPnl]);
+
+  const updateTrade = useCallback((trade: Trade) => {
+    _setTrades((prev) => {
+      const next = prev.map((t) => (t.id === trade.id ? trade : t));
+      persistTrades(next);
+      return next;
+    });
+    refreshAccountPnl();
+    scheduleSync();
+  }, [scheduleSync, refreshAccountPnl]);
+
+  const deleteTrade = useCallback((id: string) => {
+    _setTrades((prev) => {
+      const next = prev.filter((t) => t.id !== id);
+      persistTrades(next);
+      return next;
+    });
+    refreshAccountPnl();
+    scheduleSync();
+  }, [scheduleSync, refreshAccountPnl]);
+
   return (
     <DataContext.Provider
       value={{
@@ -262,6 +421,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
         accounts, addAccount, updateAccount, deleteAccount,
         propFirms, addPropFirm, updatePropFirm, deletePropFirm,
         dailyEntries, upsertDailyEntry, deleteDailyEntry,
+        tradingSetups, addTradingSetup, updateTradingSetup, deleteTradingSetup,
+        trades, addTrade, updateTrade, deleteTrade,
         syncStatus, triggerSync,
       }}
     >

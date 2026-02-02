@@ -6,12 +6,13 @@ import { HashRouter, Routes, Route } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { DataProvider } from "@/context/DataContext";
 import Dashboard from "./pages/Dashboard";
-import Payouts from "./pages/Payouts";
-import Expenses from "./pages/Expenses";
+import Financials from "./pages/Financials";
 import Accounts from "./pages/Accounts";
 import PropFirms from "./pages/PropFirms";
 import Reports from "./pages/Reports";
 import Calendar from "./pages/Calendar";
+import Trades from "./pages/Trades";
+import Setups from "./pages/Setups";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -26,12 +27,13 @@ const App = () => (
           <AppLayout>
             <Routes>
               <Route path="/" element={<Dashboard />} />
-              <Route path="/payouts" element={<Payouts />} />
-              <Route path="/expenses" element={<Expenses />} />
+              <Route path="/financials" element={<Financials />} />
               <Route path="/accounts" element={<Accounts />} />
               <Route path="/prop-firms" element={<PropFirms />} />
               <Route path="/reports" element={<Reports />} />
               <Route path="/calendar" element={<Calendar />} />
+              <Route path="/trades" element={<Trades />} />
+              <Route path="/setups" element={<Setups />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </AppLayout>

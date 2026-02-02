@@ -1,5 +1,5 @@
-import { Payout, Expense, Account, PropFirm, DailyEntry } from '@/types';
-import { mockPayouts, mockExpenses, mockAccounts, mockPropFirms, mockDailyEntries } from '@/data/mockData';
+import { Payout, Expense, Account, PropFirm, DailyEntry, TradingSetup, Trade } from '@/types';
+import { mockPayouts, mockExpenses, mockAccounts, mockPropFirms, mockDailyEntries, mockTradingSetups, mockTrades } from '@/data/mockData';
 
 const STORAGE_PREFIX = 'proptracker_';
 
@@ -9,6 +9,8 @@ const KEYS = {
   accounts: `${STORAGE_PREFIX}accounts`,
   propFirms: `${STORAGE_PREFIX}propfirms`,
   dailyEntries: `${STORAGE_PREFIX}daily_entries`,
+  tradingSetups: `${STORAGE_PREFIX}trading_setups`,
+  trades: `${STORAGE_PREFIX}trades`,
   initialized: `${STORAGE_PREFIX}initialized`,
 } as const;
 
@@ -34,6 +36,8 @@ function seedIfNeeded(): void {
   write(KEYS.accounts, mockAccounts);
   write(KEYS.propFirms, mockPropFirms);
   write(KEYS.dailyEntries, mockDailyEntries);
+  write(KEYS.tradingSetups, mockTradingSetups);
+  write(KEYS.trades, mockTrades);
   localStorage.setItem(KEYS.initialized, '1');
 }
 
@@ -92,6 +96,20 @@ export function setDailyEntries(data: DailyEntry[]): void {
   write(KEYS.dailyEntries, data);
 }
 
+export function getTradingSetups(): TradingSetup[] {
+  return read<TradingSetup[]>(KEYS.tradingSetups) ?? [];
+}
+export function setTradingSetups(data: TradingSetup[]): void {
+  write(KEYS.tradingSetups, data);
+}
+
+export function getTrades(): Trade[] {
+  return read<Trade[]>(KEYS.trades) ?? [];
+}
+export function setTrades(data: Trade[]): void {
+  write(KEYS.trades, data);
+}
+
 /** Clear all stored data and re-seed from mock data */
 export function resetToDefaults(): void {
   localStorage.removeItem(KEYS.initialized);
@@ -116,6 +134,8 @@ export async function syncToR2(): Promise<void> {
     accounts: getAccounts(),
     propFirms: getPropFirms(),
     dailyEntries: getDailyEntries(),
+    tradingSetups: getTradingSetups(),
+    trades: getTrades(),
   };
   const res = await fetch(`${R2_API_URL}/sync`, {
     method: 'PUT',
@@ -141,6 +161,8 @@ export async function pullFromR2(): Promise<boolean> {
     if (data.accounts) setAccounts(data.accounts);
     if (data.propFirms) setPropFirms(data.propFirms);
     if (data.dailyEntries) setDailyEntries(data.dailyEntries);
+    if (data.tradingSetups) setTradingSetups(data.tradingSetups);
+    if (data.trades) setTrades(data.trades);
     return true;
   } catch {
     return false;

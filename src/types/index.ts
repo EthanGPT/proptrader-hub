@@ -29,6 +29,8 @@ export interface Account {
   status: EvaluationStatus | FundedStatus;
   endDate?: string;
   profitLoss: number;
+  maxDrawdown?: number;    // max loss $ before auto-breach/fail
+  profitTarget?: number;   // profit $ to auto-pass (evaluations)
   notes?: string;
 }
 
@@ -75,6 +77,41 @@ export interface DailyEntry {
   pnl?: number;
   notes?: string;
 }
+
+export type TradeDirection = 'long' | 'short';
+export type TradeResult = 'win' | 'loss' | 'breakeven';
+
+export interface TradingSetup {
+  id: string;
+  name: string;
+  description?: string;
+  rules?: string;
+}
+
+export interface Trade {
+  id: string;
+  date: string;
+  time?: string;
+  instrument: string;
+  setupId: string;
+  accountId?: string; // account ID or 'split' for equal split across active funded accounts
+  direction: TradeDirection;
+  entry: number;
+  exit?: number;
+  stopLoss?: number;
+  takeProfit?: number;
+  contracts: number;
+  pnl: number;
+  result: TradeResult;
+  riskReward?: number;
+  rating?: number; // 1-5 execution quality
+  notes?: string;
+}
+
+export const INSTRUMENTS = [
+  'NQ', 'ES', 'YM', 'RTY', 'GC', 'CL',
+  'EUR/USD', 'GBP/USD', 'USD/JPY',
+] as const;
 
 export const ACCOUNT_SIZES = [
   5000, 10000, 25000, 50000, 100000, 200000, 400000

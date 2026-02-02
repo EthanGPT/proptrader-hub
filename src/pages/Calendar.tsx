@@ -19,10 +19,13 @@ import {
   Pencil,
   Trash2,
   FileText,
-  X,
+  ArrowUpRight,
+  ArrowDownRight,
+  Star,
+  CrosshairIcon,
 } from "lucide-react";
 import { useData } from "@/context/DataContext";
-import { DailyEntry } from "@/types";
+import { DailyEntry, Trade, INSTRUMENTS } from "@/types";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -30,34 +33,114 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
 const Calendar = () => {
-  const { dailyEntries, upsertDailyEntry, deleteDailyEntry } = useData();
+  const {
+    dailyEntries,
+    upsertDailyEntry,
+    deleteDailyEntry,
+    trades,
+    tradingSetups,
+    accounts,
+    addTrade,
+    updateTrade,
+    deleteTrade,
+  } = useData();
+  const tradingAccounts = useMemo(() => {
+    const active = accounts.filter(
+      (a) =>
+        (a.type === "funded" && a.status === "active") ||
+        (a.type === "evaluation" && a.status === "in_progress")
+    );
+    const nameCount = new Map<string, number>();
+    const nameIndex = new Map<string, number>();
+    active.forEach((a) => {
+      const key = `${a.propFirm} $${(a.accountSize / 1000).toFixed(0)}K`;
+      nameCount.set(key, (nameCount.get(key) || 0) + 1);
+    });
+    return active.map((a) => {
+      const key = `${a.propFirm} $${(a.accountSize / 1000).toFixed(0)}K`;
+      const count = nameCount.get(key) || 1;
+      const idx = (nameIndex.get(key) || 0) + 1;
+      nameIndex.set(key, idx);
+      const suffix = a.type === "evaluation" ? " (Eval)" : "";
+      return { ...a, label: count > 1 ? `${key} #${idx}${suffix}` : `${key}${suffix}` };
+    });
+  }, [accounts]);
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isEntryDialogOpen, setIsEntryDialogOpen] = useState(false);
+  const [isTradeDialogOpen, setIsTradeDialogOpen] = useState(false);
+  const [editingTrade, setEditingTrade] = useState<Trade | null>(null);
 
-  // Build a lookup map for fast access
+  // Build a lookup map for daily entries
   const entryMap = useMemo(() => {
     const map = new Map<string, DailyEntry>();
     dailyEntries.forEach((e) => map.set(e.date, e));
     return map;
   }, [dailyEntries]);
 
-  // Monthly stats
+  // Build a lookup map for trades by date
+  const tradesByDate = useMemo(() => {
+    const map = new Map<string, Trade[]>();
+    trades.forEach((t) => {
+      const existing = map.get(t.date) || [];
+      existing.push(t);
+      map.set(t.date, existing);
+    });
+    return map;
+  }, [trades]);
+
+  // Setup name lookup
+  const setupMap = useMemo(() => {
+    const m = new Map<string, string>();
+    tradingSetups.forEach((s) => m.set(s.id, s.name));
+    return m;
+  }, [tradingSetups]);
+
+  // Monthly stats (derived from trades + daily entries)
   const monthStats = useMemo(() => {
     const monthStr = format(currentMonth, "yyyy-MM");
-    const monthEntries = dailyEntries.filter((e) => e.date.startsWith(monthStr));
-    const totalPnl = monthEntries.reduce((sum, e) => sum + (e.pnl ?? 0), 0);
-    const winDays = monthEntries.filter((e) => (e.pnl ?? 0) > 0).length;
-    const lossDays = monthEntries.filter((e) => (e.pnl ?? 0) < 0).length;
-    const tradingDays = monthEntries.filter((e) => e.pnl !== undefined && e.pnl !== 0).length;
-    return { totalPnl, winDays, lossDays, tradingDays };
-  }, [dailyEntries, currentMonth]);
+    const monthTrades = trades.filter((t) => t.date.startsWith(monthStr));
+    const totalPnl = monthTrades.reduce((sum, t) => sum + t.pnl, 0);
+    const tradingDays = new Set(monthTrades.map((t) => t.date)).size;
+
+    // Win/loss days by net P&L per day
+    const dayPnl = new Map<string, number>();
+    monthTrades.forEach((t) => {
+      dayPnl.set(t.date, (dayPnl.get(t.date) || 0) + t.pnl);
+    });
+    // Also factor in manual daily entries if no trades exist for that day
+    const monthEntries = dailyEntries.filter(
+      (e) => e.date.startsWith(monthStr) && e.pnl !== undefined
+    );
+    monthEntries.forEach((e) => {
+      if (!dayPnl.has(e.date)) {
+        dayPnl.set(e.date, e.pnl!);
+      }
+    });
+
+    let winDays = 0;
+    let lossDays = 0;
+    dayPnl.forEach((pnl) => {
+      if (pnl > 0) winDays++;
+      else if (pnl < 0) lossDays++;
+    });
+
+    const allDays = dayPnl.size;
+    return { totalPnl, winDays, lossDays, tradingDays: allDays };
+  }, [trades, dailyEntries, currentMonth]);
 
   // Generate calendar grid
   const calendarDays = useMemo(() => {
@@ -75,37 +158,35 @@ const Calendar = () => {
     return days;
   }, [currentMonth]);
 
-  const selectedEntry = selectedDate
-    ? entryMap.get(format(selectedDate, "yyyy-MM-dd"))
+  const selectedDateStr = selectedDate
+    ? format(selectedDate, "yyyy-MM-dd")
     : null;
+  const selectedEntry = selectedDateStr
+    ? entryMap.get(selectedDateStr)
+    : null;
+  const selectedTrades = selectedDateStr
+    ? (tradesByDate.get(selectedDateStr) || []).sort((a, b) =>
+        (a.time ?? "").localeCompare(b.time ?? "")
+      )
+    : [];
+  const selectedDayPnl = selectedTrades.reduce((sum, t) => sum + t.pnl, 0);
 
   const handleDayClick = (day: Date) => {
     setSelectedDate(day);
   };
 
-  const handleAddEdit = () => {
-    setIsDialogOpen(true);
-  };
-
-  const handleDelete = () => {
-    if (selectedEntry) {
-      deleteDailyEntry(selectedEntry.id);
-      setSelectedDate(null);
-    }
-  };
-
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="animate-fade-in">
-        <h1 className="text-3xl font-bold tracking-tight">Calendar</h1>
-        <p className="text-muted-foreground">
-          Track your daily P&L and journal notes
+      <div>
+        <h1 className="page-title">Calendar</h1>
+        <p className="page-subtitle">
+          Track your daily P&L, trades, and journal notes
         </p>
       </div>
 
       {/* Monthly stats */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 animate-slide-up">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <div className="stat-card p-4">
           <p className="text-xs text-muted-foreground">Monthly P&L</p>
           <p
@@ -141,196 +222,315 @@ const Calendar = () => {
         </div>
       </div>
 
-      <div className="flex flex-col gap-6 lg:flex-row">
-        {/* Calendar Grid */}
-        <div className="stat-card flex-1 animate-slide-up p-4 sm:p-6">
-          {/* Month navigation */}
-          <div className="mb-4 flex items-center justify-between">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setCurrentMonth(subMonths(currentMonth, 1))}
-            >
-              <ChevronLeft className="h-5 w-5" />
-            </Button>
-            <h2 className="text-lg font-semibold">
-              {format(currentMonth, "MMMM yyyy")}
-            </h2>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}
-            >
-              <ChevronRight className="h-5 w-5" />
-            </Button>
-          </div>
-
-          {/* Day headers */}
-          <div className="mb-1 grid grid-cols-7 gap-1">
-            {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
-              <div
-                key={d}
-                className="py-2 text-center text-xs font-medium text-muted-foreground"
-              >
-                {d}
-              </div>
-            ))}
-          </div>
-
-          {/* Day cells */}
-          <div className="grid grid-cols-7 gap-1">
-            {calendarDays.map((day) => {
-              const dateStr = format(day, "yyyy-MM-dd");
-              const entry = entryMap.get(dateStr);
-              const inMonth = isSameMonth(day, currentMonth);
-              const selected = selectedDate && isSameDay(day, selectedDate);
-              const today = isToday(day);
-              const pnl = entry?.pnl;
-              const hasNotes = !!entry?.notes;
-
-              return (
-                <button
-                  key={dateStr}
-                  onClick={() => handleDayClick(day)}
-                  className={cn(
-                    "relative flex min-h-[72px] flex-col items-center rounded-lg border p-1 text-left transition-all hover:border-accent/50 sm:min-h-[80px] sm:p-2",
-                    !inMonth && "opacity-30",
-                    selected
-                      ? "border-accent bg-accent/10 ring-1 ring-accent"
-                      : "border-border/50 bg-card/50",
-                    today && !selected && "border-accent/30"
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "mb-1 text-xs font-medium sm:text-sm",
-                      today && "rounded-full bg-accent px-1.5 py-0.5 text-accent-foreground",
-                      !inMonth && "text-muted-foreground"
-                    )}
-                  >
-                    {format(day, "d")}
-                  </span>
-
-                  {pnl !== undefined && pnl !== null && (
-                    <span
-                      className={cn(
-                        "text-[10px] font-bold sm:text-xs",
-                        pnl > 0
-                          ? "text-success"
-                          : pnl < 0
-                          ? "text-destructive"
-                          : "text-muted-foreground"
-                      )}
-                    >
-                      {pnl > 0 ? "+" : ""}${Math.abs(pnl).toLocaleString()}
-                    </span>
-                  )}
-
-                  {hasNotes && (
-                    <FileText className="absolute bottom-1 right-1 h-3 w-3 text-muted-foreground/60" />
-                  )}
-                </button>
-              );
-            })}
-          </div>
+      {/* Calendar Grid — full width */}
+      <div className="stat-card p-4 sm:p-6">
+        {/* Month navigation */}
+        <div className="mb-4 flex items-center justify-between">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setCurrentMonth(subMonths(currentMonth, 1))}
+          >
+            <ChevronLeft className="h-5 w-5" />
+          </Button>
+          <h2 className="text-lg font-semibold">
+            {format(currentMonth, "MMMM yyyy")}
+          </h2>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}
+          >
+            <ChevronRight className="h-5 w-5" />
+          </Button>
         </div>
 
-        {/* Side Panel - Selected Day Details */}
-        <div className="stat-card animate-slide-up w-full p-5 lg:w-80">
-          {selectedDate ? (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="font-semibold">
-                  {format(selectedDate, "EEEE, MMM d")}
-                </h3>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7"
-                  onClick={() => setSelectedDate(null)}
+        {/* Day headers */}
+        <div className="mb-1 grid grid-cols-7 gap-1.5">
+          {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
+            <div
+              key={d}
+              className="py-2 text-center text-xs font-medium text-muted-foreground"
+            >
+              {d}
+            </div>
+          ))}
+        </div>
+
+        {/* Day cells */}
+        <div className="grid grid-cols-7 gap-1.5">
+          {calendarDays.map((day) => {
+            const dateStr = format(day, "yyyy-MM-dd");
+            const entry = entryMap.get(dateStr);
+            const dayTrades = tradesByDate.get(dateStr) || [];
+            const inMonth = isSameMonth(day, currentMonth);
+            const selected = selectedDate && isSameDay(day, selectedDate);
+            const today = isToday(day);
+            const hasNotes = !!entry?.notes;
+
+            // P&L: sum of trades if any, else manual entry
+            const tradePnl =
+              dayTrades.length > 0
+                ? dayTrades.reduce((s, t) => s + t.pnl, 0)
+                : null;
+            const pnl = tradePnl ?? entry?.pnl;
+            const tradeCount = dayTrades.length;
+            const hasPnl = pnl !== undefined && pnl !== null;
+            const isGreen = hasPnl && pnl > 0;
+            const isRed = hasPnl && pnl < 0;
+
+            return (
+              <button
+                key={dateStr}
+                onClick={() => handleDayClick(day)}
+                className={cn(
+                  "relative flex min-h-[90px] flex-col items-center rounded-lg border p-1.5 text-left transition-all hover:border-accent/50 sm:min-h-[100px] sm:p-2",
+                  !inMonth && "opacity-30",
+                  selected
+                    ? "border-accent bg-accent/5"
+                    : isGreen
+                    ? "border-success/30 bg-success/[0.06]"
+                    : isRed
+                    ? "border-destructive/30 bg-destructive/[0.06]"
+                    : "border-border bg-card/50",
+                  today && !selected && !isGreen && !isRed && "border-accent/40"
+                )}
+                style={
+                  !selected && isGreen
+                    ? { boxShadow: "inset 0 0 12px hsl(var(--success) / 0.08)" }
+                    : !selected && isRed
+                    ? { boxShadow: "inset 0 0 12px hsl(var(--destructive) / 0.08)" }
+                    : undefined
+                }
+              >
+                <span
+                  className={cn(
+                    "mb-1 text-xs font-medium sm:text-sm",
+                    today &&
+                      "rounded-full bg-accent px-1.5 py-0.5 text-accent-foreground",
+                    !inMonth && "text-muted-foreground"
+                  )}
                 >
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
+                  {format(day, "d")}
+                </span>
 
-              {selectedEntry ? (
-                <>
-                  {selectedEntry.pnl !== undefined && (
-                    <div>
-                      <p className="text-xs text-muted-foreground">P&L</p>
-                      <p
-                        className={cn(
-                          "text-2xl font-bold",
-                          selectedEntry.pnl >= 0
-                            ? "text-success"
-                            : "text-destructive"
-                        )}
-                      >
-                        {selectedEntry.pnl >= 0 ? "+" : ""}$
-                        {Math.abs(selectedEntry.pnl).toLocaleString()}
-                      </p>
-                    </div>
-                  )}
-
-                  {selectedEntry.notes && (
-                    <div>
-                      <p className="mb-1 text-xs text-muted-foreground">
-                        Journal Notes
-                      </p>
-                      <div className="rounded-lg bg-secondary/50 p-3 text-sm leading-relaxed whitespace-pre-wrap">
-                        {selectedEntry.notes}
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="flex gap-2 pt-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="flex-1"
-                      onClick={handleAddEdit}
-                    >
-                      <Pencil className="mr-1 h-3 w-3" />
-                      Edit
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="text-destructive hover:text-destructive"
-                      onClick={handleDelete}
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </Button>
-                  </div>
-                </>
-              ) : (
-                <div className="space-y-3">
-                  <p className="text-sm text-muted-foreground">
-                    No entry for this day yet.
-                  </p>
-                  <Button
-                    className="w-full bg-accent text-accent-foreground hover:bg-accent/90"
-                    onClick={handleAddEdit}
+                {hasPnl && (
+                  <span
+                    className={cn(
+                      "text-xs font-bold sm:text-sm",
+                      isGreen
+                        ? "text-success"
+                        : isRed
+                        ? "text-destructive"
+                        : "text-muted-foreground"
+                    )}
                   >
-                    <Plus className="mr-2 h-4 w-4" />
-                    Add Entry
-                  </Button>
+                    {pnl > 0 ? "+" : ""}${Math.abs(pnl).toLocaleString()}
+                  </span>
+                )}
+
+                {/* Trade count + notes indicators */}
+                <div className="absolute bottom-1.5 left-1.5 right-1.5 flex items-center justify-between">
+                  {tradeCount > 0 && (
+                    <span className="flex items-center gap-0.5 text-[9px] font-medium text-muted-foreground">
+                      <CrosshairIcon className="h-2.5 w-2.5" />
+                      {tradeCount}
+                    </span>
+                  )}
+                  {hasNotes && (
+                    <FileText className="ml-auto h-3 w-3 text-muted-foreground/60" />
+                  )}
                 </div>
-              )}
-            </div>
-          ) : (
-            <div className="flex h-full min-h-[200px] flex-col items-center justify-center text-center">
-              <FileText className="mb-3 h-10 w-10 text-muted-foreground/30" />
-              <p className="text-sm text-muted-foreground">
-                Select a day to view or add your P&L and journal notes
-              </p>
-            </div>
-          )}
+              </button>
+            );
+          })}
         </div>
       </div>
 
-      {/* Add/Edit Dialog */}
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+      {/* Day Details Dialog */}
+      <Dialog open={!!selectedDate} onOpenChange={(open) => { if (!open) setSelectedDate(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {selectedDate && format(selectedDate, "EEEE, MMM d yyyy")}
+            </DialogTitle>
+          </DialogHeader>
+
+          {selectedDate && (
+            <div className="space-y-4">
+              {/* Day P&L Summary */}
+              {(selectedTrades.length > 0 || selectedEntry?.pnl !== undefined) && (
+                <div className="flex items-center gap-4">
+                  <div>
+                    <p className="text-xs text-muted-foreground">Day P&L</p>
+                    <p
+                      className={cn(
+                        "text-2xl font-bold",
+                        (selectedTrades.length > 0 ? selectedDayPnl : selectedEntry?.pnl ?? 0) >= 0
+                          ? "text-success"
+                          : "text-destructive"
+                      )}
+                    >
+                      {(selectedTrades.length > 0 ? selectedDayPnl : selectedEntry?.pnl ?? 0) >= 0 ? "+" : ""}$
+                      {Math.abs(selectedTrades.length > 0 ? selectedDayPnl : selectedEntry?.pnl ?? 0).toLocaleString()}
+                    </p>
+                  </div>
+                  {selectedTrades.length > 0 && (
+                    <div className="text-right">
+                      <p className="text-xs text-muted-foreground">Trades</p>
+                      <p className="text-lg font-bold">{selectedTrades.length}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Trades List */}
+              {selectedTrades.length > 0 && (
+                <div>
+                  <p className="mb-2 section-label">
+                    Trades
+                  </p>
+                  <div className="space-y-2 max-h-[280px] overflow-y-auto pr-1">
+                    {selectedTrades.map((trade) => (
+                      <div
+                        key={trade.id}
+                        className="group flex items-center gap-2 rounded-lg border border-border bg-card p-2.5 transition-colors hover:bg-secondary/50"
+                      >
+                        {trade.direction === "long" ? (
+                          <ArrowUpRight className="h-4 w-4 shrink-0 text-success" />
+                        ) : (
+                          <ArrowDownRight className="h-4 w-4 shrink-0 text-destructive" />
+                        )}
+
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-sm font-semibold">
+                              {trade.instrument}
+                            </span>
+                            <span className="rounded bg-background/50 px-1 py-0.5 text-[9px] text-muted-foreground">
+                              {setupMap.get(trade.setupId) ?? "—"}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {trade.time && (
+                              <span className="text-[10px] text-muted-foreground">
+                                {trade.time}
+                              </span>
+                            )}
+                            {trade.rating && (
+                              <span className="flex gap-0.5">
+                                {Array.from({ length: 5 }).map((_, i) => (
+                                  <Star
+                                    key={i}
+                                    className={cn(
+                                      "h-2 w-2",
+                                      i < trade.rating!
+                                        ? "fill-warning text-warning"
+                                        : "text-muted-foreground/15"
+                                    )}
+                                  />
+                                ))}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <p
+                          className={cn(
+                            "text-sm font-bold tabular-nums",
+                            trade.pnl > 0
+                              ? "text-success"
+                              : trade.pnl < 0
+                              ? "text-destructive"
+                              : "text-muted-foreground"
+                          )}
+                        >
+                          {trade.pnl >= 0 ? "+" : ""}$
+                          {Math.abs(trade.pnl).toLocaleString()}
+                        </p>
+
+                        {/* Edit / Delete on hover */}
+                        <div className="flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
+                            onClick={() => {
+                              setEditingTrade(trade);
+                              setIsTradeDialogOpen(true);
+                            }}
+                          >
+                            <Pencil className="h-2.5 w-2.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
+                            onClick={() => deleteTrade(trade.id)}
+                          >
+                            <Trash2 className="h-2.5 w-2.5 text-destructive" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Journal Notes */}
+              {selectedEntry?.notes && (
+                <div>
+                  <p className="mb-1 section-label">
+                    Journal Notes
+                  </p>
+                  <div className="rounded-lg border border-border bg-card p-3 text-sm leading-relaxed whitespace-pre-wrap">
+                    {selectedEntry.notes}
+                  </div>
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="flex flex-wrap gap-2 pt-1">
+                <Button
+                  className="flex-1 bg-accent text-accent-foreground hover:bg-accent/90"
+                  size="sm"
+                  onClick={() => {
+                    setEditingTrade(null);
+                    setIsTradeDialogOpen(true);
+                  }}
+                >
+                  <Plus className="mr-1 h-3.5 w-3.5" />
+                  Log Trade
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex-1"
+                  onClick={() => setIsEntryDialogOpen(true)}
+                >
+                  <FileText className="mr-1 h-3.5 w-3.5" />
+                  {selectedEntry ? "Edit Notes" : "Add Notes"}
+                </Button>
+                {selectedEntry && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-destructive hover:text-destructive"
+                    onClick={() => {
+                      deleteDailyEntry(selectedEntry.id);
+                    }}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Daily Entry (Notes/PnL) Dialog */}
+      <Dialog open={isEntryDialogOpen} onOpenChange={setIsEntryDialogOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
@@ -344,9 +544,48 @@ const Calendar = () => {
               initialData={selectedEntry}
               onSave={(entry) => {
                 upsertDailyEntry(entry);
-                setIsDialogOpen(false);
+                setIsEntryDialogOpen(false);
               }}
-              onClose={() => setIsDialogOpen(false)}
+              onClose={() => setIsEntryDialogOpen(false)}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Trade Logging Dialog */}
+      <Dialog
+        open={isTradeDialogOpen}
+        onOpenChange={(open) => {
+          setIsTradeDialogOpen(open);
+          if (!open) setEditingTrade(null);
+        }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              {editingTrade ? "Edit Trade" : "Log Trade"} -{" "}
+              {selectedDate && format(selectedDate, "MMM d, yyyy")}
+            </DialogTitle>
+          </DialogHeader>
+          {selectedDate && (
+            <CalendarTradeForm
+              date={format(selectedDate, "yyyy-MM-dd")}
+              tradingSetups={tradingSetups}
+              tradingAccounts={tradingAccounts}
+              initialData={editingTrade}
+              onSave={(trade) => {
+                if (editingTrade) {
+                  updateTrade(trade as Trade);
+                } else {
+                  addTrade(trade);
+                }
+                setIsTradeDialogOpen(false);
+                setEditingTrade(null);
+              }}
+              onClose={() => {
+                setIsTradeDialogOpen(false);
+                setEditingTrade(null);
+              }}
             />
           )}
         </DialogContent>
@@ -354,6 +593,8 @@ const Calendar = () => {
     </div>
   );
 };
+
+// ── Daily Entry Form ─────────────────────────────────────────
 
 interface EntryFormProps {
   date: string;
@@ -380,17 +621,17 @@ function EntryForm({ date, initialData, onSave, onClose }: EntryFormProps) {
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="space-y-2">
-        <Label htmlFor="pnl">Daily P&L ($)</Label>
+        <Label htmlFor="pnl">Manual P&L Override ($)</Label>
         <Input
           id="pnl"
           type="number"
           step="0.01"
-          placeholder="e.g. 450 or -120"
+          placeholder="Leave blank to auto-sum from trades"
           value={pnl}
           onChange={(e) => setPnl(e.target.value)}
         />
         <p className="text-xs text-muted-foreground">
-          Use negative numbers for losses. Leave blank if no trades.
+          Only needed if you want to override the auto-calculated P&L from trades.
         </p>
       </div>
       <div className="space-y-2">
@@ -412,6 +653,316 @@ function EntryForm({ date, initialData, onSave, onClose }: EntryFormProps) {
           className="bg-accent text-accent-foreground hover:bg-accent/90"
         >
           {initialData ? "Update" : "Save"} Entry
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+// ── Trade Form (for calendar) ────────────────────────────────
+
+interface CalendarTradeFormProps {
+  date: string;
+  tradingSetups: { id: string; name: string }[];
+  tradingAccounts: { id: string; propFirm: string; accountSize: number; label: string }[];
+  initialData?: Trade | null;
+  onSave: (trade: Omit<Trade, "id"> | Trade) => void;
+  onClose: () => void;
+}
+
+function CalendarTradeForm({
+  date,
+  tradingSetups,
+  tradingAccounts,
+  initialData,
+  onSave,
+  onClose,
+}: CalendarTradeFormProps) {
+  const [formData, setFormData] = useState<Partial<Trade>>(
+    initialData ?? {
+      date,
+      time: "",
+      instrument: "NQ",
+      setupId: tradingSetups[0]?.id ?? "",
+      accountId: tradingAccounts[0]?.id ?? "",
+      direction: "long",
+      entry: 0,
+      exit: undefined,
+      stopLoss: undefined,
+      contracts: 1,
+      pnl: 0,
+      result: "win",
+      riskReward: undefined,
+      rating: undefined,
+      notes: "",
+    }
+  );
+  const [ratingHover, setRatingHover] = useState(0);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const trade = {
+      ...formData,
+      date, // always lock to the selected calendar date
+      pnl: formData.pnl ?? 0,
+      contracts: formData.contracts ?? 1,
+    };
+    onSave(trade as Trade);
+  };
+
+  const set = (updates: Partial<Trade>) =>
+    setFormData((prev) => ({ ...prev, ...updates }));
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div className="space-y-1">
+          <Label htmlFor="cal-trade-time">Time</Label>
+          <Input
+            id="cal-trade-time"
+            type="time"
+            value={formData.time}
+            onChange={(e) => set({ time: e.target.value })}
+          />
+        </div>
+        <div className="space-y-1">
+          <Label>Instrument</Label>
+          <Select
+            value={formData.instrument}
+            onValueChange={(v) => set({ instrument: v })}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {INSTRUMENTS.map((i) => (
+                <SelectItem key={i} value={i}>
+                  {i}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1">
+          <Label>Direction</Label>
+          <Select
+            value={formData.direction}
+            onValueChange={(v) =>
+              set({ direction: v as Trade["direction"] })
+            }
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="long">Long</SelectItem>
+              <SelectItem value="short">Short</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div className="space-y-1">
+          <Label>Setup</Label>
+          <Select
+            value={formData.setupId}
+            onValueChange={(v) => set({ setupId: v })}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Select setup" />
+            </SelectTrigger>
+            <SelectContent>
+              {tradingSetups.map((s) => (
+                <SelectItem key={s.id} value={s.id}>
+                  {s.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1">
+          <Label>Account</Label>
+          <Select
+            value={formData.accountId ?? ""}
+            onValueChange={(v) => set({ accountId: v })}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Select account" />
+            </SelectTrigger>
+            <SelectContent>
+              {tradingAccounts.map((a) => (
+                <SelectItem key={a.id} value={a.id}>
+                  {a.label}
+                </SelectItem>
+              ))}
+              {tradingAccounts.length > 1 && (
+                <SelectItem value="split">All Accounts (split)</SelectItem>
+              )}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1">
+          <Label>Result</Label>
+          <Select
+            value={formData.result}
+            onValueChange={(v) => set({ result: v as Trade["result"] })}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="win">Win</SelectItem>
+              <SelectItem value="loss">Loss</SelectItem>
+              <SelectItem value="breakeven">Breakeven</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-4">
+        <div className="space-y-1">
+          <Label htmlFor="cal-entry">Entry</Label>
+          <Input
+            id="cal-entry"
+            type="number"
+            step="any"
+            value={formData.entry ?? ""}
+            onChange={(e) => set({ entry: parseFloat(e.target.value) || 0 })}
+            required
+          />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="cal-exit">Exit</Label>
+          <Input
+            id="cal-exit"
+            type="number"
+            step="any"
+            value={formData.exit ?? ""}
+            onChange={(e) =>
+              set({
+                exit: e.target.value ? parseFloat(e.target.value) : undefined,
+              })
+            }
+          />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="cal-sl">Stop Loss</Label>
+          <Input
+            id="cal-sl"
+            type="number"
+            step="any"
+            value={formData.stopLoss ?? ""}
+            onChange={(e) =>
+              set({
+                stopLoss: e.target.value
+                  ? parseFloat(e.target.value)
+                  : undefined,
+              })
+            }
+          />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="cal-contracts">Contracts</Label>
+          <Input
+            id="cal-contracts"
+            type="number"
+            min="1"
+            step="1"
+            value={formData.contracts ?? 1}
+            onChange={(e) =>
+              set({ contracts: parseInt(e.target.value) || 1 })
+            }
+            required
+          />
+        </div>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="space-y-1">
+          <Label htmlFor="cal-pnl">P&L ($)</Label>
+          <Input
+            id="cal-pnl"
+            type="number"
+            step="0.01"
+            value={formData.pnl ?? ""}
+            onChange={(e) => set({ pnl: parseFloat(e.target.value) || 0 })}
+            required
+          />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="cal-rr">R:R</Label>
+          <Input
+            id="cal-rr"
+            type="number"
+            step="0.01"
+            min="0"
+            placeholder="e.g. 2.5"
+            value={formData.riskReward ?? ""}
+            onChange={(e) =>
+              set({
+                riskReward: e.target.value
+                  ? parseFloat(e.target.value)
+                  : undefined,
+              })
+            }
+          />
+        </div>
+      </div>
+
+      {/* Star Rating */}
+      <div className="space-y-1">
+        <Label>Execution Rating</Label>
+        <div className="flex items-center gap-1">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <button
+              key={i}
+              type="button"
+              onMouseEnter={() => setRatingHover(i + 1)}
+              onMouseLeave={() => setRatingHover(0)}
+              onClick={() =>
+                set({ rating: formData.rating === i + 1 ? undefined : i + 1 })
+              }
+              className="p-0.5"
+            >
+              <Star
+                className={cn(
+                  "h-5 w-5 transition-colors",
+                  i < (ratingHover || formData.rating || 0)
+                    ? "fill-warning text-warning"
+                    : "text-muted-foreground/30 hover:text-warning/50"
+                )}
+              />
+            </button>
+          ))}
+          {formData.rating && (
+            <span className="ml-2 text-xs text-muted-foreground">
+              {formData.rating}/5
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div className="space-y-1">
+        <Label htmlFor="cal-notes">Notes</Label>
+        <Textarea
+          id="cal-notes"
+          rows={2}
+          placeholder="Quick notes on this trade..."
+          value={formData.notes}
+          onChange={(e) => set({ notes: e.target.value })}
+        />
+      </div>
+
+      <div className="flex justify-end gap-3">
+        <Button type="button" variant="outline" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button
+          type="submit"
+          className="bg-accent text-accent-foreground hover:bg-accent/90"
+        >
+          {initialData ? "Update" : "Log"} Trade
         </Button>
       </div>
     </form>
