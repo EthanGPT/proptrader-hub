@@ -433,6 +433,11 @@ const Calendar = () => {
                               </span>
                             )}
                           </div>
+                          {trade.notes && (
+                            <p className="text-[10px] text-muted-foreground mt-1 line-clamp-2">
+                              {trade.notes}
+                            </p>
+                          )}
                         </div>
 
                         <p
