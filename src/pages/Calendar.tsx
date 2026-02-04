@@ -317,7 +317,7 @@ const Calendar = () => {
                 {hasPnl && (
                   <span
                     className={cn(
-                      "text-xs font-bold sm:text-sm",
+                      "text-lg font-bold sm:text-xl",
                       isGreen
                         ? "text-success"
                         : isRed
@@ -691,11 +691,11 @@ function CalendarTradeForm({
       setupId: tradingSetups[0]?.id ?? "",
       accountId: tradingAccounts[0]?.id ?? "",
       direction: "long",
-      entry: 0,
+      entry: undefined,
       exit: undefined,
       stopLoss: undefined,
       contracts: 1,
-      pnl: 0,
+      pnl: undefined,
       result: "win",
       riskReward: undefined,
       rating: undefined,
@@ -833,7 +833,7 @@ function CalendarTradeForm({
             type="number"
             step="any"
             value={formData.entry ?? ""}
-            onChange={(e) => set({ entry: parseFloat(e.target.value) || 0 })}
+            onChange={(e) => set({ entry: e.target.value !== '' ? parseFloat(e.target.value) : undefined })}
             required
           />
         </div>
@@ -891,7 +891,7 @@ function CalendarTradeForm({
             type="number"
             step="0.01"
             value={formData.pnl ?? ""}
-            onChange={(e) => set({ pnl: parseFloat(e.target.value) || 0 })}
+            onChange={(e) => set({ pnl: e.target.value !== '' ? parseFloat(e.target.value) : undefined })}
             required
           />
         </div>

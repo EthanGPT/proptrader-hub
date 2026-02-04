@@ -97,8 +97,12 @@ const Trades = () => {
   }, [trades, filterSetup, filterResult, filterInstrument]);
 
   const stats = useMemo(() => {
-    const wins = filteredTrades.filter((t) => t.result === "win").length;
-    const losses = filteredTrades.filter((t) => t.result === "loss").length;
+    // Split trades represent N orders (one per active account)
+    const splitN = Math.max(tradingAccounts.length, 1);
+    const orderCount = (t: Trade) => t.accountId === "split" ? splitN : 1;
+
+    const wins = filteredTrades.reduce((n, t) => n + (t.result === "win" ? orderCount(t) : 0), 0);
+    const losses = filteredTrades.reduce((n, t) => n + (t.result === "loss" ? orderCount(t) : 0), 0);
     const totalPnl = filteredTrades.reduce((sum, t) => sum + t.pnl, 0);
     const tradingCount = wins + losses;
     const winRate = tradingCount > 0 ? Math.round((wins / tradingCount) * 100) : 0;
@@ -124,9 +128,10 @@ const Trades = () => {
             .reduce((sum, t) => sum + (t.rating ?? 0), 0) /
           filteredTrades.filter((t) => t.rating).length
         : 0;
+    const total = filteredTrades.reduce((n, t) => n + orderCount(t), 0);
 
-    return { wins, losses, totalPnl, winRate, avgWin, avgLoss, profitFactor, avgRating, total: filteredTrades.length };
-  }, [filteredTrades]);
+    return { wins, losses, totalPnl, winRate, avgWin, avgLoss, profitFactor, avgRating, total };
+  }, [filteredTrades, tradingAccounts]);
 
   const instruments = useMemo(() => {
     const set = new Set(trades.map((t) => t.instrument));
@@ -504,12 +509,12 @@ function TradeForm({
       setupId: tradingSetups[0]?.id ?? "",
       accountId: tradingAccounts[0]?.id ?? "",
       direction: "long",
-      entry: 0,
+      entry: undefined,
       exit: undefined,
       stopLoss: undefined,
       takeProfit: undefined,
       contracts: 1,
-      pnl: 0,
+      pnl: undefined,
       result: "win",
       riskReward: undefined,
       rating: undefined,
@@ -641,7 +646,7 @@ function TradeForm({
             type="number"
             step="any"
             value={formData.entry ?? ""}
-            onChange={(e) => set({ entry: parseFloat(e.target.value) || 0 })}
+            onChange={(e) => set({ entry: e.target.value !== '' ? parseFloat(e.target.value) : undefined })}
             required
           />
         </div>
@@ -699,7 +704,7 @@ function TradeForm({
             type="number"
             step="0.01"
             value={formData.pnl ?? ""}
-            onChange={(e) => set({ pnl: parseFloat(e.target.value) || 0 })}
+            onChange={(e) => set({ pnl: e.target.value !== '' ? parseFloat(e.target.value) : undefined })}
             required
           />
         </div>

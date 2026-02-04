@@ -97,8 +97,12 @@ const Dashboard = () => {
 
   // ── Trade stats ──────────────────────────────────────────
   const tradeStats = useMemo(() => {
-    const wins = trades.filter((t) => t.result === "win").length;
-    const losses = trades.filter((t) => t.result === "loss").length;
+    // Split trades represent N orders (one per active account)
+    const splitN = Math.max(activeAccounts.length, 1);
+    const oc = (t: { accountId?: string }) => t.accountId === "split" ? splitN : 1;
+
+    const wins = trades.reduce((n, t) => n + (t.result === "win" ? oc(t) : 0), 0);
+    const losses = trades.reduce((n, t) => n + (t.result === "loss" ? oc(t) : 0), 0);
     const totalPnl = trades.reduce((sum, t) => sum + t.pnl, 0);
     const tradingCount = wins + losses;
     const winRate =
@@ -113,9 +117,10 @@ const Dashboard = () => {
             .reduce((sum, t) => sum + (t.rating ?? 0), 0) /
           trades.filter((t) => t.rating).length
         : 0;
+    const total = trades.reduce((n, t) => n + oc(t), 0);
 
-    return { wins, losses, totalPnl, winRate, profitFactor, avgRating, total: trades.length };
-  }, [trades]);
+    return { wins, losses, totalPnl, winRate, profitFactor, avgRating, total };
+  }, [trades, activeAccounts]);
 
   // ── Streak ───────────────────────────────────────────────
   const currentStreak = useMemo(() => {
