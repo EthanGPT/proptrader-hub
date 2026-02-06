@@ -1,10 +1,9 @@
 import { useState } from "react";
 import { format } from "date-fns";
-import { Plus, Pencil, Trash2, CheckCircle2, XCircle, Clock, Wallet, AlertTriangle, LogOut } from "lucide-react";
+import { Plus, Pencil, Trash2, CheckCircle2, XCircle, Clock, Wallet, AlertTriangle, LogOut, Eye, EyeOff } from "lucide-react";
 import { useData } from "@/context/DataContext";
 import { ACCOUNT_SIZES, Account, AccountType, EvaluationStatus, FundedStatus } from "@/types";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
@@ -40,9 +39,16 @@ const Accounts = () => {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [defaultType, setDefaultType] = useState<AccountType>('evaluation');
+  const [showFailed, setShowFailed] = useState(false);
 
   const evaluations = accounts.filter(a => a.type === 'evaluation');
   const funded = accounts.filter(a => a.type === 'funded');
+
+  // Active accounts (not failed/breached)
+  const activeEvaluations = evaluations.filter(a => a.status === 'in_progress' || a.status === 'passed');
+  const failedEvaluations = evaluations.filter(a => a.status === 'failed');
+  const activeFunded = funded.filter(a => a.status === 'active');
+  const inactiveFunded = funded.filter(a => a.status === 'breached' || a.status === 'withdrawn');
 
   // Evaluation stats
   const evalPassed = evaluations.filter(a => a.status === 'passed').length;
@@ -53,8 +59,6 @@ const Accounts = () => {
 
   // Funded stats
   const fundedActive = funded.filter(a => a.status === 'active').length;
-  const fundedBreached = funded.filter(a => a.status === 'breached').length;
-  const fundedWithdrawn = funded.filter(a => a.status === 'withdrawn').length;
   const fundedTotalPL = funded.reduce((sum, a) => sum + a.profitLoss, 0);
 
   const renderAccountCard = (account: Account) => {
@@ -205,109 +209,111 @@ const Accounts = () => {
         </Dialog>
       </div>
 
-      {/* ── Evaluations Section ─────────────────────────────── */}
+      {/* ── Active Accounts Section ─────────────────────────────── */}
       <section className="space-y-6">
         <div className="flex items-center justify-between">
-          <h2 className="text-xl font-semibold">Evaluations</h2>
-          <Button onClick={() => openAddDialog('evaluation')} className="bg-accent text-accent-foreground hover:bg-accent/90">
-            <Plus className="mr-2 h-4 w-4" />
-            Add Evaluation
-          </Button>
-        </div>
-
-        <div className="grid gap-4 sm:grid-cols-4">
-          <div className="stat-card text-center">
-            <p className="text-4xl font-bold text-success">{evalSuccessRate}%</p>
-            <p className="text-sm text-muted-foreground">Pass Rate</p>
-          </div>
-          <div className="stat-card text-center">
-            <p className="text-4xl font-bold text-success">{evalPassed}</p>
-            <p className="text-sm text-muted-foreground">Passed</p>
-          </div>
-          <div className="stat-card text-center">
-            <p className="text-4xl font-bold text-destructive">{evalFailed}</p>
-            <p className="text-sm text-muted-foreground">Failed</p>
-          </div>
-          <div className="stat-card text-center">
-            <p className="text-4xl font-bold text-warning">{evalActive}</p>
-            <p className="text-sm text-muted-foreground">In Progress</p>
+          <h2 className="text-xl font-semibold">Active Accounts</h2>
+          <div className="flex gap-2">
+            <Button onClick={() => openAddDialog('evaluation')} variant="outline">
+              <Plus className="mr-2 h-4 w-4" />
+              Add Evaluation
+            </Button>
+            <Button onClick={() => openAddDialog('funded')} className="bg-accent text-accent-foreground hover:bg-accent/90">
+              <Plus className="mr-2 h-4 w-4" />
+              Add Funded
+            </Button>
           </div>
         </div>
 
-        <Tabs defaultValue="all">
-          <TabsList className="mb-6">
-            <TabsTrigger value="all">All ({evaluations.length})</TabsTrigger>
-            <TabsTrigger value="active">In Progress ({evalActive})</TabsTrigger>
-            <TabsTrigger value="passed">Passed ({evalPassed})</TabsTrigger>
-            <TabsTrigger value="failed">Failed ({evalFailed})</TabsTrigger>
-          </TabsList>
-          <TabsContent value="all">
-            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">{evaluations.map(renderAccountCard)}</div>
-          </TabsContent>
-          <TabsContent value="active">
-            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">{evaluations.filter(a => a.status === 'in_progress').map(renderAccountCard)}</div>
-          </TabsContent>
-          <TabsContent value="passed">
-            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">{evaluations.filter(a => a.status === 'passed').map(renderAccountCard)}</div>
-          </TabsContent>
-          <TabsContent value="failed">
-            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">{evaluations.filter(a => a.status === 'failed').map(renderAccountCard)}</div>
-          </TabsContent>
-        </Tabs>
-      </section>
-
-      {/* ── Funded Section ──────────────────────────────────── */}
-      <section className="space-y-6">
-        <div className="flex items-center justify-between">
-          <h2 className="text-xl font-semibold">Funded Accounts</h2>
-          <Button onClick={() => openAddDialog('funded')} className="bg-accent text-accent-foreground hover:bg-accent/90">
-            <Plus className="mr-2 h-4 w-4" />
-            Add Funded Account
-          </Button>
-        </div>
-
+        {/* Stats row */}
         <div className="grid gap-4 sm:grid-cols-4">
           <div className="stat-card text-center">
             <p className={cn("text-4xl font-bold", fundedTotalPL >= 0 ? "text-success" : "text-destructive")}>
               ${fundedTotalPL.toLocaleString()}
             </p>
-            <p className="text-sm text-muted-foreground">Total P/L</p>
+            <p className="text-sm text-muted-foreground">Funded P/L</p>
           </div>
           <div className="stat-card text-center">
             <p className="text-4xl font-bold text-success">{fundedActive}</p>
-            <p className="text-sm text-muted-foreground">Active</p>
+            <p className="text-sm text-muted-foreground">Funded Active</p>
           </div>
           <div className="stat-card text-center">
-            <p className="text-4xl font-bold text-destructive">{fundedBreached}</p>
-            <p className="text-sm text-muted-foreground">Breached</p>
+            <p className="text-4xl font-bold text-warning">{evalActive}</p>
+            <p className="text-sm text-muted-foreground">Evals In Progress</p>
           </div>
           <div className="stat-card text-center">
-            <p className="text-4xl font-bold text-muted-foreground">{fundedWithdrawn}</p>
-            <p className="text-sm text-muted-foreground">Withdrawn</p>
+            <p className="text-4xl font-bold text-success">{evalSuccessRate}%</p>
+            <p className="text-sm text-muted-foreground">Pass Rate</p>
           </div>
         </div>
 
-        <Tabs defaultValue="all">
-          <TabsList className="mb-6">
-            <TabsTrigger value="all">All ({funded.length})</TabsTrigger>
-            <TabsTrigger value="active">Active ({fundedActive})</TabsTrigger>
-            <TabsTrigger value="breached">Breached ({fundedBreached})</TabsTrigger>
-            <TabsTrigger value="withdrawn">Withdrawn ({fundedWithdrawn})</TabsTrigger>
-          </TabsList>
-          <TabsContent value="all">
-            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">{funded.map(renderAccountCard)}</div>
-          </TabsContent>
-          <TabsContent value="active">
-            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">{funded.filter(a => a.status === 'active').map(renderAccountCard)}</div>
-          </TabsContent>
-          <TabsContent value="breached">
-            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">{funded.filter(a => a.status === 'breached').map(renderAccountCard)}</div>
-          </TabsContent>
-          <TabsContent value="withdrawn">
-            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">{funded.filter(a => a.status === 'withdrawn').map(renderAccountCard)}</div>
-          </TabsContent>
-        </Tabs>
+        {/* Funded Accounts */}
+        {activeFunded.length > 0 && (
+          <div className="space-y-3">
+            <h3 className="text-lg font-medium text-muted-foreground">Funded</h3>
+            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">{activeFunded.map(renderAccountCard)}</div>
+          </div>
+        )}
+
+        {/* In Progress Evaluations */}
+        {activeEvaluations.filter(a => a.status === 'in_progress').length > 0 && (
+          <div className="space-y-3">
+            <h3 className="text-lg font-medium text-muted-foreground">Evaluations - In Progress</h3>
+            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+              {activeEvaluations.filter(a => a.status === 'in_progress').map(renderAccountCard)}
+            </div>
+          </div>
+        )}
+
+        {/* Passed Evaluations */}
+        {activeEvaluations.filter(a => a.status === 'passed').length > 0 && (
+          <div className="space-y-3">
+            <h3 className="text-lg font-medium text-muted-foreground">Evaluations - Passed</h3>
+            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+              {activeEvaluations.filter(a => a.status === 'passed').map(renderAccountCard)}
+            </div>
+          </div>
+        )}
       </section>
+
+      {/* ── Failed/Inactive Section (Toggle) ──────────────────────────────────── */}
+      {(failedEvaluations.length > 0 || inactiveFunded.length > 0) && (
+        <section className="space-y-6">
+          <Button
+            variant="ghost"
+            onClick={() => setShowFailed(!showFailed)}
+            className="w-full justify-between border border-dashed border-muted-foreground/30 py-6"
+          >
+            <span className="flex items-center gap-2 text-muted-foreground">
+              {showFailed ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              {showFailed ? 'Hide' : 'Show'} Failed & Inactive Accounts
+            </span>
+            <span className="text-sm text-muted-foreground">
+              {failedEvaluations.length + inactiveFunded.length} accounts
+            </span>
+          </Button>
+
+          {showFailed && (
+            <div className="space-y-6">
+              {/* Failed Evaluations */}
+              {failedEvaluations.length > 0 && (
+                <div className="space-y-3">
+                  <h3 className="text-lg font-medium text-destructive">Failed Evaluations ({failedEvaluations.length})</h3>
+                  <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">{failedEvaluations.map(renderAccountCard)}</div>
+                </div>
+              )}
+
+              {/* Breached/Withdrawn Funded */}
+              {inactiveFunded.length > 0 && (
+                <div className="space-y-3">
+                  <h3 className="text-lg font-medium text-destructive">Breached/Withdrawn Funded ({inactiveFunded.length})</h3>
+                  <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">{inactiveFunded.map(renderAccountCard)}</div>
+                </div>
+              )}
+            </div>
+          )}
+        </section>
+      )}
     </div>
   );
 };

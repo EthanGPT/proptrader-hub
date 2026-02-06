@@ -8,6 +8,7 @@ import {
   ArrowDownRight,
   Star,
   Download,
+  Upload,
 } from "lucide-react";
 import { useData } from "@/context/DataContext";
 import { Trade, INSTRUMENTS } from "@/types";
@@ -64,6 +65,7 @@ const Trades = () => {
     });
   }, [accounts]);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
   const [editingTrade, setEditingTrade] = useState<Trade | null>(null);
   const [filterSetup, setFilterSetup] = useState("all");
   const [filterResult, setFilterResult] = useState("all");
@@ -193,6 +195,10 @@ const Trades = () => {
           </p>
         </div>
         <div className="flex gap-3">
+          <Button variant="outline" onClick={() => setIsImportDialogOpen(true)}>
+            <Upload className="mr-2 h-4 w-4" />
+            Import
+          </Button>
           <Button variant="outline" onClick={handleExportCSV}>
             <Download className="mr-2 h-4 w-4" />
             Export
@@ -233,6 +239,24 @@ const Trades = () => {
                   setIsDialogOpen(false);
                   setEditingTrade(null);
                 }}
+              />
+            </DialogContent>
+          </Dialog>
+          {/* Import Dialog */}
+          <Dialog open={isImportDialogOpen} onOpenChange={setIsImportDialogOpen}>
+            <DialogContent className="max-w-lg">
+              <DialogHeader>
+                <DialogTitle>Import Trades from CSV</DialogTitle>
+              </DialogHeader>
+              <ImportForm
+                tradingSetups={tradingSetups}
+                tradingAccounts={tradingAccounts}
+                allAccounts={accounts}
+                onImport={(newTrades) => {
+                  newTrades.forEach(t => addTrade(t));
+                  setIsImportDialogOpen(false);
+                }}
+                onClose={() => setIsImportDialogOpen(false)}
               />
             </DialogContent>
           </Dialog>
@@ -800,6 +824,316 @@ function TradeForm({
         </Button>
       </div>
     </form>
+  );
+}
+
+// ── Import Form ───────────────────────────────────────────────
+
+interface ImportFormProps {
+  tradingSetups: { id: string; name: string }[];
+  tradingAccounts: { id: string; propFirm: string; accountSize: number; label: string }[];
+  allAccounts: { id: string; propFirm: string; accountSize: number; type: string; status: string }[];
+  onImport: (trades: Omit<Trade, "id">[]) => void;
+  onClose: () => void;
+}
+
+function ImportForm({
+  tradingSetups,
+  tradingAccounts,
+  allAccounts,
+  onImport,
+  onClose,
+}: ImportFormProps) {
+  const [accountId, setAccountId] = useState(tradingAccounts[0]?.id ?? "");
+  const [setupId, setSetupId] = useState(tradingSetups[0]?.id ?? "");
+  const [csvData, setCsvData] = useState("");
+  const [parsedTrades, setParsedTrades] = useState<Omit<Trade, "id">[]>([]);
+  const [error, setError] = useState("");
+
+  // All accounts for selection (not just active)
+  const allAccountOptions = useMemo(() => {
+    return allAccounts.map(a => ({
+      id: a.id,
+      label: `${a.propFirm} $${(a.accountSize / 1000).toFixed(0)}K ${a.type === 'evaluation' ? `(${a.status})` : '(Funded)'}`,
+    }));
+  }, [allAccounts]);
+
+  const parseCSV = (text: string) => {
+    setError("");
+    const lines = text.trim().split("\n");
+    if (lines.length < 2) {
+      setError("CSV must have headers and at least one data row");
+      return;
+    }
+
+    // Parse headers (case-insensitive)
+    const headers = lines[0].split(",").map(h => h.trim().toLowerCase().replace(/['"]/g, ""));
+
+    // Find column indices
+    const findCol = (...names: string[]) =>
+      headers.findIndex(h => names.some(n => h.includes(n)));
+
+    const cols = {
+      instrument: findCol("instrument", "symbol", "ticker"),
+      contracts: findCol("contract", "qty", "quantity", "size", "lot"),
+      entry: findCol("entry", "open", "buy"),
+      exit: findCol("exit", "close", "sell"),
+      pnl: findCol("pnl", "p&l", "profit", "net"),
+      date: findCol("date", "time", "timestamp"),
+      direction: findCol("direction", "side", "type"),
+    };
+
+    const trades: Omit<Trade, "id">[] = [];
+
+    for (let i = 1; i < lines.length; i++) {
+      const values = lines[i].split(",").map(v => v.trim().replace(/['"$()]/g, ""));
+      if (values.length < 2) continue;
+
+      // Parse P&L
+      let pnl = 0;
+      if (cols.pnl >= 0 && values[cols.pnl]) {
+        const pnlStr = values[cols.pnl].replace(/[^0-9.-]/g, "");
+        pnl = parseFloat(pnlStr) || 0;
+      }
+
+      // Parse contracts
+      let contracts = 1;
+      if (cols.contracts >= 0 && values[cols.contracts]) {
+        contracts = parseInt(values[cols.contracts]) || 1;
+      }
+
+      // Parse entry/exit
+      let entry = 0;
+      let exit: number | undefined;
+      if (cols.entry >= 0 && values[cols.entry]) {
+        entry = parseFloat(values[cols.entry].replace(/[^0-9.]/g, "")) || 0;
+      }
+      if (cols.exit >= 0 && values[cols.exit]) {
+        exit = parseFloat(values[cols.exit].replace(/[^0-9.]/g, "")) || undefined;
+      }
+
+      // Parse date
+      let date = new Date().toISOString().split("T")[0];
+      let time = "";
+      if (cols.date >= 0 && values[cols.date]) {
+        const dateStr = values[cols.date];
+        // Try to parse various date formats
+        const dateMatch = dateStr.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+        if (dateMatch) {
+          const [, m, d, y] = dateMatch;
+          const year = y.length === 2 ? `20${y}` : y;
+          date = `${year}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+        }
+        const timeMatch = dateStr.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+        if (timeMatch) {
+          time = `${timeMatch[1].padStart(2, "0")}:${timeMatch[2]}`;
+        }
+      }
+
+      // Parse instrument
+      let instrument = "NQ";
+      if (cols.instrument >= 0 && values[cols.instrument]) {
+        const sym = values[cols.instrument].toUpperCase();
+        if (sym.includes("NQ") || sym.includes("MNQ")) instrument = "NQ";
+        else if (sym.includes("ES") || sym.includes("MES")) instrument = "ES";
+        else if (sym.includes("GC") || sym.includes("MGC")) instrument = "GC";
+        else if (sym.includes("CL") || sym.includes("MCL")) instrument = "CL";
+        else if (sym.includes("YM") || sym.includes("MYM")) instrument = "YM";
+        else if (sym.includes("RTY") || sym.includes("M2K")) instrument = "RTY";
+        else instrument = sym.slice(0, 6);
+      }
+
+      // Determine direction from P&L or explicit column
+      let direction: "long" | "short" = "long";
+      if (cols.direction >= 0 && values[cols.direction]) {
+        const dir = values[cols.direction].toLowerCase();
+        direction = dir.includes("short") || dir.includes("sell") ? "short" : "long";
+      }
+
+      // Determine result
+      const result: "win" | "loss" | "breakeven" =
+        pnl > 0 ? "win" : pnl < 0 ? "loss" : "breakeven";
+
+      trades.push({
+        date,
+        time,
+        instrument,
+        setupId,
+        accountId,
+        direction,
+        entry,
+        exit,
+        contracts,
+        pnl,
+        result,
+      });
+    }
+
+    if (trades.length === 0) {
+      setError("No valid trades found in CSV");
+      return;
+    }
+
+    setParsedTrades(trades);
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const text = evt.target?.result as string;
+      setCsvData(text);
+      parseCSV(text);
+    };
+    reader.readAsText(file);
+  };
+
+  const handlePaste = (text: string) => {
+    setCsvData(text);
+    if (text.trim()) {
+      parseCSV(text);
+    } else {
+      setParsedTrades([]);
+    }
+  };
+
+  // Re-parse when account or setup changes
+  const updateTradesWithSettings = () => {
+    if (parsedTrades.length > 0) {
+      setParsedTrades(trades => trades.map(t => ({ ...t, accountId, setupId })));
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="space-y-1">
+          <Label>Account</Label>
+          <Select value={accountId} onValueChange={(v) => { setAccountId(v); }}>
+            <SelectTrigger>
+              <SelectValue placeholder="Select account" />
+            </SelectTrigger>
+            <SelectContent>
+              {allAccountOptions.map(a => (
+                <SelectItem key={a.id} value={a.id}>{a.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1">
+          <Label>Default Setup</Label>
+          <Select value={setupId} onValueChange={(v) => { setSetupId(v); }}>
+            <SelectTrigger>
+              <SelectValue placeholder="Select setup" />
+            </SelectTrigger>
+            <SelectContent>
+              {tradingSetups.map(s => (
+                <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      <div className="space-y-1">
+        <Label>Upload CSV or Paste Data</Label>
+        <div className="flex gap-2">
+          <Input
+            type="file"
+            accept=".csv,.txt"
+            onChange={handleFileUpload}
+            className="flex-1"
+          />
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Supports most broker exports. Looks for: instrument, contracts, entry, exit, pnl, date
+        </p>
+      </div>
+
+      <div className="space-y-1">
+        <Label>Or paste CSV data</Label>
+        <Textarea
+          rows={4}
+          placeholder="Paste CSV data here..."
+          value={csvData}
+          onChange={(e) => handlePaste(e.target.value)}
+          className="font-mono text-xs"
+        />
+      </div>
+
+      {error && (
+        <p className="text-sm text-destructive">{error}</p>
+      )}
+
+      {parsedTrades.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-sm font-medium">
+            Preview: {parsedTrades.length} trades to import
+          </p>
+          <div className="max-h-40 overflow-auto rounded border p-2 text-xs">
+            <table className="w-full">
+              <thead>
+                <tr className="text-muted-foreground">
+                  <th className="text-left">Date</th>
+                  <th className="text-left">Instrument</th>
+                  <th className="text-right">Contracts</th>
+                  <th className="text-right">P&L</th>
+                </tr>
+              </thead>
+              <tbody>
+                {parsedTrades.slice(0, 10).map((t, i) => (
+                  <tr key={i}>
+                    <td>{t.date}</td>
+                    <td>{t.instrument}</td>
+                    <td className="text-right">{t.contracts}</td>
+                    <td className={cn(
+                      "text-right font-medium",
+                      t.pnl >= 0 ? "text-success" : "text-destructive"
+                    )}>
+                      {t.pnl >= 0 ? "+" : ""}${t.pnl.toFixed(2)}
+                    </td>
+                  </tr>
+                ))}
+                {parsedTrades.length > 10 && (
+                  <tr>
+                    <td colSpan={4} className="text-center text-muted-foreground">
+                      ... and {parsedTrades.length - 10} more
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Total P&L: <span className={cn(
+              "font-medium",
+              parsedTrades.reduce((s, t) => s + t.pnl, 0) >= 0 ? "text-success" : "text-destructive"
+            )}>
+              ${parsedTrades.reduce((s, t) => s + t.pnl, 0).toFixed(2)}
+            </span>
+          </p>
+        </div>
+      )}
+
+      <div className="flex justify-end gap-3">
+        <Button type="button" variant="outline" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button
+          onClick={() => {
+            // Apply current account/setup to all trades before importing
+            const finalTrades = parsedTrades.map(t => ({ ...t, accountId, setupId }));
+            onImport(finalTrades);
+          }}
+          disabled={parsedTrades.length === 0}
+          className="bg-accent text-accent-foreground hover:bg-accent/90"
+        >
+          Import {parsedTrades.length} Trades
+        </Button>
+      </div>
+    </div>
   );
 }
 

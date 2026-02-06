@@ -173,25 +173,44 @@ const Dashboard = () => {
     [accounts]
   );
 
+  // Get IDs of live accounts (in_progress evals + active funded)
+  const liveAccountIds = useMemo(() => {
+    return new Set(
+      accounts
+        .filter(a =>
+          (a.type === 'evaluation' && a.status === 'in_progress') ||
+          (a.type === 'funded' && a.status === 'active')
+        )
+        .map(a => a.id)
+    );
+  }, [accounts]);
+
   const equityCurve = useMemo(() => {
-    if (trades.length === 0) return [];
-    const sorted = [...trades].sort(
+    // Only include trades from live accounts (or split trades which affect live accounts)
+    const liveTrades = trades.filter(t =>
+      t.accountId === 'split' || liveAccountIds.has(t.accountId ?? '')
+    );
+    if (liveTrades.length === 0) return [];
+    const sorted = [...liveTrades].sort(
       (a, b) => a.date.localeCompare(b.date) || (a.time ?? "").localeCompare(b.time ?? "")
     );
     const dayMap = new Map<string, number>();
     let cumPnl = 0;
     for (const t of sorted) {
-      cumPnl += t.pnl;
+      // For split trades, only count the portion that goes to live accounts
+      const pnl = t.accountId === 'split' ? t.pnl : t.pnl;
+      cumPnl += pnl;
       dayMap.set(t.date, cumPnl);
     }
     const points = Array.from(dayMap.entries()).map(([date, pnl]) => ({
       date,
       balance: Math.round((startingCapital + pnl) * 100) / 100,
     }));
+    if (points.length === 0) return [];
     const firstDate = points[0].date;
     const anchorDate = format(subDays(parseISO(firstDate), 1), "yyyy-MM-dd");
     return [{ date: anchorDate, balance: startingCapital }, ...points];
-  }, [trades, startingCapital]);
+  }, [trades, startingCapital, liveAccountIds]);
 
   // ── Equity curve stats ──────────────────────────────────
   const equityStats = useMemo(() => {
@@ -508,13 +527,13 @@ const Dashboard = () => {
         </div>
       </div>
 
-      {/* ── Equity Curve ──────────────────────────────────── */}
+      {/* ── Account Value ──────────────────────────────────── */}
       <div className="rounded-lg border border-border/60 bg-card">
         <div className="p-6">
           {/* Header row */}
           <div className="mb-1 flex flex-wrap items-end justify-between gap-4">
             <div>
-              <p className="section-label">Equity Curve</p>
+              <p className="section-label">Account Value</p>
               {equityStats ? (
                 <div className="mt-1 flex items-baseline gap-3">
                   <span className="text-3xl font-semibold tabular-nums tracking-tight">
@@ -685,7 +704,7 @@ const Dashboard = () => {
               </ResponsiveContainer>
             ) : (
               <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-                Log trades to see your equity curve
+                Log trades to see your account value
               </div>
             )}
           </div>
