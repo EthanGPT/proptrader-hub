@@ -61,6 +61,9 @@ const Accounts = () => {
   const fundedActive = funded.filter(a => a.status === 'active').length;
   const fundedTotalPL = funded.reduce((sum, a) => sum + a.profitLoss, 0);
 
+  // Combined P&L (funded + evaluations)
+  const totalPL = accounts.reduce((sum, a) => sum + a.profitLoss, 0);
+
   const renderAccountCard = (account: Account) => {
     const config = getStatusConfig(account);
     const StatusIcon = config.icon;
@@ -228,10 +231,10 @@ const Accounts = () => {
         {/* Stats row */}
         <div className="grid gap-4 sm:grid-cols-4">
           <div className="stat-card text-center">
-            <p className={cn("text-4xl font-bold", fundedTotalPL >= 0 ? "text-success" : "text-destructive")}>
-              ${fundedTotalPL.toLocaleString()}
+            <p className={cn("text-4xl font-bold", totalPL >= 0 ? "text-success" : "text-destructive")}>
+              ${totalPL.toLocaleString()}
             </p>
-            <p className="text-sm text-muted-foreground">Funded P/L</p>
+            <p className="text-sm text-muted-foreground">Total P/L</p>
           </div>
           <div className="stat-card text-center">
             <p className="text-4xl font-bold text-success">{fundedActive}</p>

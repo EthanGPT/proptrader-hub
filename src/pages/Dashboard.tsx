@@ -173,33 +173,16 @@ const Dashboard = () => {
     [accounts]
   );
 
-  // Get IDs of live accounts (in_progress evals + active funded)
-  const liveAccountIds = useMemo(() => {
-    return new Set(
-      accounts
-        .filter(a =>
-          (a.type === 'evaluation' && a.status === 'in_progress') ||
-          (a.type === 'funded' && a.status === 'active')
-        )
-        .map(a => a.id)
-    );
-  }, [accounts]);
-
   const equityCurve = useMemo(() => {
-    // Only include trades from live accounts (or split trades which affect live accounts)
-    const liveTrades = trades.filter(t =>
-      t.accountId === 'split' || liveAccountIds.has(t.accountId ?? '')
-    );
-    if (liveTrades.length === 0) return [];
-    const sorted = [...liveTrades].sort(
+    // Include ALL trades from all accounts (including failed/passed/breached)
+    if (trades.length === 0) return [];
+    const sorted = [...trades].sort(
       (a, b) => a.date.localeCompare(b.date) || (a.time ?? "").localeCompare(b.time ?? "")
     );
     const dayMap = new Map<string, number>();
     let cumPnl = 0;
     for (const t of sorted) {
-      // For split trades, only count the portion that goes to live accounts
-      const pnl = t.accountId === 'split' ? t.pnl : t.pnl;
-      cumPnl += pnl;
+      cumPnl += t.pnl;
       dayMap.set(t.date, cumPnl);
     }
     const points = Array.from(dayMap.entries()).map(([date, pnl]) => ({
@@ -210,7 +193,7 @@ const Dashboard = () => {
     const firstDate = points[0].date;
     const anchorDate = format(subDays(parseISO(firstDate), 1), "yyyy-MM-dd");
     return [{ date: anchorDate, balance: startingCapital }, ...points];
-  }, [trades, startingCapital, liveAccountIds]);
+  }, [trades, startingCapital]);
 
   // ── Equity curve stats ──────────────────────────────────
   const equityStats = useMemo(() => {
