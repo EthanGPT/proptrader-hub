@@ -61,8 +61,12 @@ const Accounts = () => {
   const fundedActive = funded.filter(a => a.status === 'active').length;
   const fundedTotalPL = funded.reduce((sum, a) => sum + a.profitLoss, 0);
 
-  // Combined P&L (funded + evaluations)
-  const totalPL = accounts.reduce((sum, a) => sum + a.profitLoss, 0);
+  // Combined P&L (active accounts only: funded active + evals in progress)
+  const activeAccounts = accounts.filter(a =>
+    (a.type === 'funded' && a.status === 'active') ||
+    (a.type === 'evaluation' && a.status === 'in_progress')
+  );
+  const totalPL = activeAccounts.reduce((sum, a) => sum + a.profitLoss, 0);
 
   const renderAccountCard = (account: Account) => {
     const config = getStatusConfig(account);
