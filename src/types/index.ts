@@ -116,3 +116,35 @@ export const INSTRUMENTS = [
 export const ACCOUNT_SIZES = [
   5000, 10000, 25000, 50000, 100000, 200000, 400000
 ] as const;
+
+// Economic Calendar Types
+export type EventImpact = 'low' | 'medium' | 'high';
+
+export interface EconomicEvent {
+  id: string;
+  releaseId: number;       // FRED release ID
+  name: string;            // e.g., "Non-Farm Payrolls"
+  date: string;            // YYYY-MM-DD
+  impact: EventImpact;
+  description?: string;
+  affectsInstruments: string[]; // e.g., ['MNQ', 'GC']
+}
+
+// High-impact releases that affect MNQ/Gold
+// Times are in ET (Eastern Time)
+export const HIGH_IMPACT_RELEASES = [
+  { id: 'nfp', name: 'Non-Farm Payrolls', impact: 'high' as EventImpact, affects: ['MNQ', 'GC'], time: '08:30' },
+  { id: 'cpi', name: 'CPI', impact: 'high' as EventImpact, affects: ['MNQ', 'GC'], time: '08:30' },
+  { id: 'fomc', name: 'FOMC Rate Decision', impact: 'high' as EventImpact, affects: ['MNQ', 'GC'], time: '14:00' },
+  { id: 'gdp', name: 'GDP', impact: 'high' as EventImpact, affects: ['MNQ', 'GC'], time: '08:30' },
+  { id: 'pce', name: 'Core PCE Price Index', impact: 'high' as EventImpact, affects: ['MNQ', 'GC'], time: '08:30' },
+  { id: 'ppi', name: 'PPI', impact: 'medium' as EventImpact, affects: ['MNQ', 'GC'], time: '08:30' },
+  { id: 'retail', name: 'Retail Sales', impact: 'medium' as EventImpact, affects: ['MNQ'], time: '08:30' },
+  { id: 'claims', name: 'Initial Jobless Claims', impact: 'medium' as EventImpact, affects: ['MNQ', 'GC'], time: '08:30' },
+  { id: 'ism_mfg', name: 'ISM Manufacturing PMI', impact: 'high' as EventImpact, affects: ['MNQ'], time: '10:00' },
+  { id: 'ism_svc', name: 'ISM Services PMI', impact: 'high' as EventImpact, affects: ['MNQ'], time: '10:00' },
+  { id: 'adp', name: 'ADP Employment', impact: 'medium' as EventImpact, affects: ['MNQ'], time: '08:15' },
+  { id: 'consumer_conf', name: 'Consumer Confidence', impact: 'medium' as EventImpact, affects: ['MNQ'], time: '10:00' },
+  { id: 'durable', name: 'Durable Goods Orders', impact: 'medium' as EventImpact, affects: ['MNQ'], time: '08:30' },
+  { id: 'michigan', name: 'Michigan Consumer Sentiment', impact: 'medium' as EventImpact, affects: ['MNQ', 'GC'], time: '10:00' },
+] as const;

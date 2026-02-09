@@ -16,6 +16,7 @@ import {
   AlertCircle,
   ChevronDown,
   MoreHorizontal,
+  Globe,
 } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import {
@@ -41,6 +42,7 @@ const mainNav = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Trades", url: "/trades", icon: CrosshairIcon },
   { title: "Calendar", url: "/calendar", icon: CalendarDays },
+  { title: "Econ Calendar", url: "/economic-calendar", icon: Globe },
   { title: "Financials", url: "/financials", icon: DollarSign },
 ];
 

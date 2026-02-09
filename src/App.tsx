@@ -11,6 +11,7 @@ import Accounts from "./pages/Accounts";
 import PropFirms from "./pages/PropFirms";
 import Reports from "./pages/Reports";
 import Calendar from "./pages/Calendar";
+import EconomicCalendar from "./pages/EconomicCalendar";
 import Trades from "./pages/Trades";
 import Setups from "./pages/Setups";
 import NotFound from "./pages/NotFound";
@@ -32,6 +33,7 @@ const App = () => (
               <Route path="/prop-firms" element={<PropFirms />} />
               <Route path="/reports" element={<Reports />} />
               <Route path="/calendar" element={<Calendar />} />
+              <Route path="/economic-calendar" element={<EconomicCalendar />} />
               <Route path="/trades" element={<Trades />} />
               <Route path="/setups" element={<Setups />} />
               <Route path="*" element={<NotFound />} />
