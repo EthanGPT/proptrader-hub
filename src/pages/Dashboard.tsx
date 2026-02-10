@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   startOfMonth,
   subMonths,
@@ -18,6 +18,7 @@ import {
   Star,
   CrosshairIcon,
   Wallet,
+  Camera,
 } from "lucide-react";
 import {
   Area,
@@ -31,6 +32,14 @@ import {
 } from "recharts";
 import { useData } from "@/context/DataContext";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { DailySnapshot } from "@/components/DailySnapshot";
 
 function calcTrend(
   current: number,
@@ -45,6 +54,7 @@ function calcTrend(
 const Dashboard = () => {
   const { payouts, expenses, accounts, trades, tradingSetups, dailyEntries, propFirms } =
     useData();
+  const [snapshotOpen, setSnapshotOpen] = useState(false);
 
   // ── Core financial stats ─────────────────────────────────
   const totalPayouts = payouts.reduce((sum, p) => sum + p.amount, 0);
@@ -262,9 +272,10 @@ const Dashboard = () => {
   return (
     <div className="space-y-8">
       {/* ── Header ────────────────────────────────────────── */}
-      <div>
-        <h1 className="page-title">Dashboard</h1>
-        <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="page-title">Dashboard</h1>
+          <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
           {currentStreak.count > 0 && (
             <span
               className={cn(
@@ -284,7 +295,17 @@ const Dashboard = () => {
             <CrosshairIcon className="h-3.5 w-3.5" />
             {tradeStats.total} trades
           </span>
+          </div>
         </div>
+        <Button
+          onClick={() => setSnapshotOpen(true)}
+          variant="outline"
+          size="sm"
+          className="gap-2"
+        >
+          <Camera className="h-4 w-4" />
+          Daily Snapshot
+        </Button>
       </div>
 
       {/* ── Top stats row ─────────────────────────────────── */}
@@ -944,6 +965,16 @@ const Dashboard = () => {
           </div>
         </div>
       </div>
+
+      {/* ── Daily Snapshot Modal ─────────────────────────────── */}
+      <Dialog open={snapshotOpen} onOpenChange={setSnapshotOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Daily Snapshot</DialogTitle>
+          </DialogHeader>
+          <DailySnapshot onClose={() => setSnapshotOpen(false)} />
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
