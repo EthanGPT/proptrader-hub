@@ -402,32 +402,51 @@ export default function Analytics() {
   // RISK MANAGEMENT ANALYSIS
   // ═══════════════════════════════════════════════════════════════
 
-  // R:R Distribution
-  const rrDistribution = useMemo(() => {
-    const bins = [
-      { range: "< 1", min: -Infinity, max: 1 },
-      { range: "1-1.5", min: 1, max: 1.5 },
-      { range: "1.5-2", min: 1.5, max: 2 },
-      { range: "2-2.5", min: 2, max: 2.5 },
-      { range: "2.5-3", min: 2.5, max: 3 },
-      { range: "> 3", min: 3, max: Infinity },
-    ];
+  // P&L Distribution (histogram of trade sizes)
+  const pnlDistribution = useMemo(() => {
+    if (filteredTrades.length === 0) return [];
 
-    const tradesWithRR = filteredTrades.filter(t => t.riskReward !== undefined);
+    const pnls = filteredTrades.map(t => t.pnl);
+    const maxPnl = Math.max(...pnls.map(Math.abs));
 
-    return bins.map(bin => {
-      const binTrades = tradesWithRR.filter(t => t.riskReward! >= bin.min && t.riskReward! < bin.max);
-      const wins = binTrades.filter(t => t.result === "win").length;
-      return {
-        range: bin.range,
-        trades: binTrades.length,
-        winRate: binTrades.length > 0 ? (wins / binTrades.length) * 100 : 0,
-        pnl: binTrades.reduce((s, t) => s + t.pnl, 0),
-      };
+    // Create dynamic bins based on data
+    const binSize = maxPnl > 1000 ? 250 : maxPnl > 500 ? 100 : maxPnl > 200 ? 50 : 25;
+    const bins: { range: string; min: number; max: number; trades: number; isProfit: boolean }[] = [];
+
+    // Loss bins (negative)
+    for (let i = Math.ceil(maxPnl / binSize); i > 0; i--) {
+      bins.push({
+        range: `-$${i * binSize}`,
+        min: -i * binSize,
+        max: -(i - 1) * binSize,
+        trades: 0,
+        isProfit: false,
+      });
+    }
+    // Profit bins (positive)
+    for (let i = 1; i <= Math.ceil(maxPnl / binSize); i++) {
+      bins.push({
+        range: `+$${i * binSize}`,
+        min: (i - 1) * binSize,
+        max: i * binSize,
+        trades: 0,
+        isProfit: true,
+      });
+    }
+
+    filteredTrades.forEach(t => {
+      for (const bin of bins) {
+        if (t.pnl >= bin.min && t.pnl < bin.max) {
+          bin.trades++;
+          break;
+        }
+      }
     });
+
+    return bins.filter(b => b.trades > 0);
   }, [filteredTrades]);
 
-  // Contract Size Distribution
+  // Contract Size Distribution - show trade count and win rate
   const contractDistribution = useMemo(() => {
     const map = new Map<number, { trades: number; pnl: number; wins: number }>();
     filteredTrades.forEach(t => {
@@ -440,35 +459,134 @@ export default function Analytics() {
     return Array.from(map.entries())
       .sort((a, b) => a[0] - b[0])
       .map(([contracts, data]) => ({
-        contracts: `${contracts} ct`,
+        contracts,
+        label: `${contracts}`,
         trades: data.trades,
         pnl: data.pnl,
+        avgPnl: data.trades > 0 ? data.pnl / data.trades : 0,
         winRate: data.trades > 0 ? (data.wins / data.trades) * 100 : 0,
       }));
   }, [filteredTrades]);
 
-  // Drawdown Analysis
-  const drawdownData = useMemo(() => {
-    const sorted = [...filteredTrades].sort((a, b) =>
+  // Drawdown Analysis - calculate from account values (accountSize + cumulative trades P&L)
+  const accountDrawdownData = useMemo(() => {
+    // Get active accounts (funded and in evaluation)
+    const activeAccounts = accounts.filter(a =>
+      a.status === 'active' || a.status === 'in_progress'
+    );
+
+    if (activeAccounts.length === 0) return { byAccount: [], combined: [], maxDrawdown: 0 };
+
+    // Calculate per-account equity and drawdown
+    const byAccount = activeAccounts.map(account => {
+      // Get trades for this account
+      const accountTrades = filteredTrades.filter(t =>
+        t.accountId === account.id ||
+        (t.accountId === 'split' && account.status === 'active')
+      ).sort((a, b) =>
+        a.date.localeCompare(b.date) || (a.time || "").localeCompare(b.time || "")
+      );
+
+      const startingEquity = account.accountSize;
+      let equity = startingEquity;
+      let peak = startingEquity;
+      let maxDD = 0;
+
+      const curve = accountTrades.map((t, i) => {
+        // For split trades, divide P&L by number of active funded accounts
+        const activeFunded = accounts.filter(a => a.status === 'active').length;
+        const pnl = t.accountId === 'split' && activeFunded > 0
+          ? t.pnl / activeFunded
+          : t.pnl;
+
+        equity += pnl;
+        peak = Math.max(peak, equity);
+        const drawdown = peak - equity;
+        maxDD = Math.max(maxDD, drawdown);
+
+        return {
+          trade: i + 1,
+          date: t.date,
+          equity,
+          peak,
+          drawdown: -drawdown, // Negative for visual
+        };
+      });
+
+      return {
+        accountId: account.id,
+        accountName: `${account.propFirm} $${(account.accountSize / 1000).toFixed(0)}K`,
+        startingEquity,
+        currentEquity: equity,
+        peakEquity: peak,
+        maxDrawdown: maxDD,
+        maxDrawdownPct: startingEquity > 0 ? (maxDD / startingEquity) * 100 : 0,
+        curve,
+      };
+    });
+
+    // Calculate combined portfolio equity curve
+    const allTrades = [...filteredTrades].sort((a, b) =>
       a.date.localeCompare(b.date) || (a.time || "").localeCompare(b.time || "")
     );
 
-    let cumPnl = 0;
-    let peak = 0;
-    let maxDrawdown = 0;
+    const totalStartingEquity = activeAccounts.reduce((sum, a) => sum + a.accountSize, 0);
+    let combinedEquity = totalStartingEquity;
+    let combinedPeak = totalStartingEquity;
+    let combinedMaxDD = 0;
 
-    return sorted.map((t, i) => {
-      cumPnl += t.pnl;
-      peak = Math.max(peak, cumPnl);
-      const drawdown = peak > 0 ? ((peak - cumPnl) / peak) * 100 : 0;
-      maxDrawdown = Math.max(maxDrawdown, drawdown);
+    const combined = allTrades.map((t, i) => {
+      combinedEquity += t.pnl;
+      combinedPeak = Math.max(combinedPeak, combinedEquity);
+      const drawdown = combinedPeak - combinedEquity;
+      combinedMaxDD = Math.max(combinedMaxDD, drawdown);
+
       return {
         trade: i + 1,
         date: t.date,
+        equity: combinedEquity,
+        peak: combinedPeak,
         drawdown: -drawdown,
-        cumPnl,
       };
     });
+
+    return {
+      byAccount,
+      combined,
+      totalStartingEquity,
+      currentEquity: combinedEquity,
+      peakEquity: combinedPeak,
+      maxDrawdown: combinedMaxDD,
+      maxDrawdownPct: totalStartingEquity > 0 ? (combinedMaxDD / totalStartingEquity) * 100 : 0,
+    };
+  }, [filteredTrades, accounts]);
+
+  // For backwards compatibility with existing UI
+  const drawdownData = accountDrawdownData.combined;
+  const maxDrawdown = accountDrawdownData.maxDrawdown;
+
+  // Daily P&L stats for risk metrics
+  const dailyPnlStats = useMemo(() => {
+    const dayMap = new Map<string, number>();
+    filteredTrades.forEach(t => {
+      dayMap.set(t.date, (dayMap.get(t.date) || 0) + t.pnl);
+    });
+
+    const dailyPnls = Array.from(dayMap.values());
+    if (dailyPnls.length === 0) return { avgDaily: 0, stdDev: 0, bestDay: 0, worstDay: 0, profitDays: 0, lossDays: 0 };
+
+    const avgDaily = dailyPnls.reduce((s, p) => s + p, 0) / dailyPnls.length;
+    const variance = dailyPnls.reduce((s, p) => s + Math.pow(p - avgDaily, 2), 0) / dailyPnls.length;
+    const stdDev = Math.sqrt(variance);
+
+    return {
+      avgDaily,
+      stdDev,
+      bestDay: Math.max(...dailyPnls),
+      worstDay: Math.min(...dailyPnls),
+      profitDays: dailyPnls.filter(p => p > 0).length,
+      lossDays: dailyPnls.filter(p => p < 0).length,
+    };
   }, [filteredTrades]);
 
   // ═══════════════════════════════════════════════════════════════
@@ -648,12 +766,11 @@ export default function Analytics() {
       </div>
 
       {/* Secondary Metrics */}
-      <div className="grid gap-3 grid-cols-2 sm:grid-cols-4 lg:grid-cols-6">
+      <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
         <MetricCard label="Total P&L" value={formatCurrency(metrics.totalPnl)} color={metrics.totalPnl >= 0 ? "success" : "destructive"} />
         <MetricCard label="Avg Trade" value={formatCurrency(metrics.avgTrade)} color={metrics.avgTrade >= 0 ? "success" : "destructive"} />
         <MetricCard label="Max Win Streak" value={metrics.maxConsecWins.toString()} icon={<TrendingUp className="h-3 w-3 text-success" />} />
         <MetricCard label="Max Loss Streak" value={metrics.maxConsecLosses.toString()} icon={<TrendingDown className="h-3 w-3 text-destructive" />} />
-        <MetricCard label="Avg R:R" value={metrics.avgRR.toFixed(2)} />
         <MetricCard label="Avg Rating" value={metrics.avgRating.toFixed(1)} icon={<Award className="h-3 w-3 text-warning" />} />
       </div>
 
@@ -1080,20 +1197,40 @@ export default function Analytics() {
 
         {/* RISK TAB */}
         <TabsContent value="risk" className="space-y-4">
+          {/* Risk Metrics Summary */}
+          <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
+            <MetricCard
+              label="Max Drawdown"
+              value={`${formatCurrency(-maxDrawdown)} (${accountDrawdownData.maxDrawdownPct?.toFixed(1) || 0}%)`}
+              color="destructive"
+            />
+            <MetricCard label="Best Day" value={formatCurrency(dailyPnlStats.bestDay)} color="success" />
+            <MetricCard label="Worst Day" value={formatCurrency(dailyPnlStats.worstDay)} color="destructive" />
+            <MetricCard label="Avg Daily P&L" value={formatCurrency(dailyPnlStats.avgDaily)} color={dailyPnlStats.avgDaily >= 0 ? "success" : "destructive"} />
+            <MetricCard label="Daily Std Dev" value={formatCurrency(dailyPnlStats.stdDev)} />
+            <MetricCard label="Profit Days" value={`${dailyPnlStats.profitDays} / ${dailyPnlStats.profitDays + dailyPnlStats.lossDays}`} />
+          </div>
+
           <div className="grid gap-4 lg:grid-cols-2">
-            {/* Drawdown Chart */}
+            {/* Drawdown Chart - Based on Account Values */}
             <Card className="p-4">
               <h3 className="text-sm font-semibold mb-4 flex items-center gap-2">
                 <AlertTriangle className="h-4 w-4" />
-                Drawdown Analysis
+                Portfolio Drawdown from Peak
               </h3>
               <div className="h-[250px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={drawdownData}>
                     <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                     <XAxis dataKey="trade" tick={{ fontSize: 11 }} />
-                    <YAxis tickFormatter={(v) => `${v}%`} tick={{ fontSize: 11 }} domain={['dataMin', 0]} />
-                    <Tooltip formatter={(value: number) => [`${Math.abs(value).toFixed(1)}%`, "Drawdown"]} />
+                    <YAxis tickFormatter={(v) => `$${v}`} tick={{ fontSize: 11 }} domain={['dataMin', 0]} />
+                    <Tooltip
+                      formatter={(value: number, name: string) => [
+                        formatCurrency(value),
+                        name === "drawdown" ? "Drawdown" : "Equity"
+                      ]}
+                      labelFormatter={(label) => `Trade #${label}`}
+                    />
                     <ReferenceLine y={0} stroke="hsl(var(--muted-foreground))" />
                     <Area
                       type="monotone"
@@ -1105,77 +1242,82 @@ export default function Analytics() {
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Based on account starting values ({formatCurrency(accountDrawdownData.totalStartingEquity || 0)}) + trade P&L
+              </p>
             </Card>
 
-            {/* R:R Distribution */}
+            {/* P&L Distribution Histogram */}
             <Card className="p-4">
               <h3 className="text-sm font-semibold mb-4 flex items-center gap-2">
-                <Target className="h-4 w-4" />
-                Risk-Reward Distribution
+                <BarChart3 className="h-4 w-4" />
+                Trade P&L Distribution
               </h3>
               <div className="h-[250px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={rrDistribution}>
+                  <BarChart data={pnlDistribution}>
                     <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                    <XAxis dataKey="range" tick={{ fontSize: 11 }} />
+                    <XAxis dataKey="range" tick={{ fontSize: 10 }} interval={0} angle={-45} textAnchor="end" height={60} />
                     <YAxis tick={{ fontSize: 11 }} />
+                    <Tooltip formatter={(value: number) => [value, "Trades"]} />
+                    <Bar dataKey="trades" radius={[4, 4, 0, 0]}>
+                      {pnlDistribution.map((entry, index) => (
+                        <Cell key={index} fill={entry.isProfit ? COLORS.profit : COLORS.loss} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Distribution of your trade sizes - are your wins bigger than losses?
+              </p>
+            </Card>
+
+            {/* Position Size - Trade Count */}
+            <Card className="p-4">
+              <h3 className="text-sm font-semibold mb-4 flex items-center gap-2">
+                <Target className="h-4 w-4" />
+                Performance by Contract Size
+              </h3>
+              <div className="h-[250px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={contractDistribution}>
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                    <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                    <YAxis yAxisId="left" tick={{ fontSize: 11 }} />
+                    <YAxis yAxisId="right" orientation="right" tickFormatter={(v) => `${v}%`} tick={{ fontSize: 11 }} domain={[0, 100]} />
                     <Tooltip
                       formatter={(value: number, name: string) => [
                         name === "trades" ? value : `${value.toFixed(1)}%`,
                         name === "trades" ? "Trades" : "Win Rate"
                       ]}
                     />
-                    <Bar dataKey="trades" fill={COLORS.accent} radius={[4, 4, 0, 0]} />
+                    <Legend />
+                    <Bar yAxisId="left" dataKey="trades" name="Trades" fill={COLORS.accent} radius={[4, 4, 0, 0]} />
+                    <Line yAxisId="right" type="monotone" dataKey="winRate" name="Win Rate" stroke={COLORS.profit} strokeWidth={2} dot />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
             </Card>
 
-            {/* Contract Size Distribution */}
+            {/* Position Size Table */}
             <Card className="p-4">
-              <h3 className="text-sm font-semibold mb-4 flex items-center gap-2">
-                <BarChart3 className="h-4 w-4" />
-                Position Size Distribution
-              </h3>
-              <div className="h-[250px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={contractDistribution}>
-                    <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                    <XAxis dataKey="contracts" tick={{ fontSize: 11 }} />
-                    <YAxis tickFormatter={(v) => `$${v}`} tick={{ fontSize: 11 }} />
-                    <Tooltip
-                      formatter={(value: number, name: string) => [
-                        name === "pnl" ? formatCurrency(value) : value,
-                        name === "pnl" ? "P&L" : "Trades"
-                      ]}
-                    />
-                    <Bar dataKey="pnl" radius={[4, 4, 0, 0]}>
-                      {contractDistribution.map((entry, index) => (
-                        <Cell key={index} fill={entry.pnl >= 0 ? COLORS.profit : COLORS.loss} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </Card>
-
-            {/* R:R Win Rate Table */}
-            <Card className="p-4">
-              <h3 className="text-sm font-semibold mb-4">Win Rate by R:R Level</h3>
+              <h3 className="text-sm font-semibold mb-4">Position Size Analysis</h3>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b">
-                      <th className="text-left py-2">R:R Range</th>
+                      <th className="text-left py-2">Contracts</th>
                       <th className="text-right py-2">Trades</th>
                       <th className="text-right py-2">Win Rate</th>
-                      <th className="text-right py-2">P&L</th>
+                      <th className="text-right py-2">Total P&L</th>
+                      <th className="text-right py-2">Avg P&L</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {rrDistribution.filter(r => r.trades > 0).map((row) => (
-                      <tr key={row.range} className="border-b border-muted">
-                        <td className="py-2 font-medium">{row.range}</td>
+                    {contractDistribution.map((row) => (
+                      <tr key={row.contracts} className="border-b border-muted">
+                        <td className="py-2 font-medium">{row.contracts} ct</td>
                         <td className="text-right py-2">{row.trades}</td>
                         <td className={cn("text-right py-2", row.winRate >= 50 ? "text-success" : "text-destructive")}>
                           {row.winRate.toFixed(1)}%
@@ -1183,12 +1325,63 @@ export default function Analytics() {
                         <td className={cn("text-right py-2 font-medium", row.pnl >= 0 ? "text-success" : "text-destructive")}>
                           {formatCurrency(row.pnl)}
                         </td>
+                        <td className={cn("text-right py-2", row.avgPnl >= 0 ? "text-success" : "text-destructive")}>
+                          {formatCurrency(row.avgPnl)}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
+              <p className="mt-3 text-xs text-muted-foreground">
+                Find your optimal position size - which contract count gives best results?
+              </p>
             </Card>
+
+            {/* Account Drawdown Breakdown */}
+            {accountDrawdownData.byAccount && accountDrawdownData.byAccount.length > 0 && (
+              <Card className="p-4 lg:col-span-2">
+                <h3 className="text-sm font-semibold mb-4 flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4" />
+                  Drawdown by Account
+                </h3>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-left py-2">Account</th>
+                        <th className="text-right py-2">Starting</th>
+                        <th className="text-right py-2">Current</th>
+                        <th className="text-right py-2">Peak</th>
+                        <th className="text-right py-2">Max DD</th>
+                        <th className="text-right py-2">Max DD %</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {accountDrawdownData.byAccount.map((acc) => (
+                        <tr key={acc.accountId} className="border-b border-muted">
+                          <td className="py-2 font-medium">{acc.accountName}</td>
+                          <td className="text-right py-2">{formatCurrency(acc.startingEquity)}</td>
+                          <td className={cn("text-right py-2", acc.currentEquity >= acc.startingEquity ? "text-success" : "text-destructive")}>
+                            {formatCurrency(acc.currentEquity)}
+                          </td>
+                          <td className="text-right py-2 text-success">{formatCurrency(acc.peakEquity)}</td>
+                          <td className="text-right py-2 text-destructive font-medium">
+                            {formatCurrency(-acc.maxDrawdown)}
+                          </td>
+                          <td className="text-right py-2 text-destructive">
+                            {acc.maxDrawdownPct.toFixed(1)}%
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="mt-3 text-xs text-muted-foreground">
+                  Drawdown calculated from account starting balance + cumulative trade P&L
+                </p>
+              </Card>
+            )}
           </div>
         </TabsContent>
 
