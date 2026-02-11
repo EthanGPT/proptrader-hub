@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import React, { useState, useMemo } from "react";
 import {
   format,
   startOfMonth,
@@ -246,20 +246,23 @@ const Calendar = () => {
         </div>
 
         {/* Day headers */}
-        <div className="mb-1 grid grid-cols-7 gap-1.5">
-          {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
+        <div className="mb-1 grid grid-cols-8 gap-1.5">
+          {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun", "Week"].map((d) => (
             <div
               key={d}
-              className="py-2 text-center text-xs font-medium text-muted-foreground"
+              className={cn(
+                "py-2 text-center text-xs font-medium text-muted-foreground",
+                d === "Week" && "bg-muted/30 rounded-t-md"
+              )}
             >
               {d}
             </div>
           ))}
         </div>
 
-        {/* Day cells */}
-        <div className="grid grid-cols-7 gap-1.5">
-          {calendarDays.map((day) => {
+        {/* Day cells with weekly summaries */}
+        <div className="grid grid-cols-8 gap-1.5">
+          {calendarDays.map((day, idx) => {
             const dateStr = format(day, "yyyy-MM-dd");
             const entry = entryMap.get(dateStr);
             const dayTrades = tradesByDate.get(dateStr) || [];
@@ -279,69 +282,124 @@ const Calendar = () => {
             const isGreen = hasPnl && pnl > 0;
             const isRed = hasPnl && pnl < 0;
 
-            return (
-              <button
-                key={dateStr}
-                onClick={() => handleDayClick(day)}
-                className={cn(
-                  "relative flex min-h-[90px] flex-col items-center rounded-lg border p-1.5 text-left transition-all hover:border-accent/50 sm:min-h-[100px] sm:p-2",
-                  !inMonth && "opacity-30",
-                  selected
-                    ? "border-accent bg-accent/5"
-                    : isGreen
-                    ? "border-success/30 bg-success/[0.06]"
-                    : isRed
-                    ? "border-destructive/30 bg-destructive/[0.06]"
-                    : "border-border bg-card/50",
-                  today && !selected && !isGreen && !isRed && "border-accent/40"
-                )}
-                style={
-                  !selected && isGreen
-                    ? { boxShadow: "inset 0 0 12px hsl(var(--success) / 0.08)" }
-                    : !selected && isRed
-                    ? { boxShadow: "inset 0 0 12px hsl(var(--destructive) / 0.08)" }
-                    : undefined
-                }
-              >
-                <span
-                  className={cn(
-                    "mb-1 text-xs font-medium sm:text-sm",
-                    today &&
-                      "rounded-full bg-accent px-1.5 py-0.5 text-accent-foreground",
-                    !inMonth && "text-muted-foreground"
-                  )}
-                >
-                  {format(day, "d")}
-                </span>
+            // Check if this is the last day of a week (Sunday = index 6 in week)
+            const isEndOfWeek = (idx + 1) % 7 === 0;
 
-                {hasPnl && (
+            // Calculate weekly stats if end of week
+            let weeklyPnl = 0;
+            let weeklyTrades = 0;
+            if (isEndOfWeek) {
+              const weekStart = idx - 6;
+              for (let i = weekStart; i <= idx; i++) {
+                const weekDay = calendarDays[i];
+                const weekDateStr = format(weekDay, "yyyy-MM-dd");
+                const weekDayTrades = tradesByDate.get(weekDateStr) || [];
+                const weekEntry = entryMap.get(weekDateStr);
+                weeklyTrades += weekDayTrades.length;
+                if (weekDayTrades.length > 0) {
+                  weeklyPnl += weekDayTrades.reduce((s, t) => s + t.pnl, 0);
+                } else if (weekEntry?.pnl !== undefined) {
+                  weeklyPnl += weekEntry.pnl;
+                }
+              }
+            }
+
+            return (
+              <React.Fragment key={dateStr}>
+                <button
+                  onClick={() => handleDayClick(day)}
+                  className={cn(
+                    "relative flex min-h-[90px] flex-col items-center rounded-lg border p-1.5 text-left transition-all hover:border-accent/50 sm:min-h-[100px] sm:p-2",
+                    !inMonth && "opacity-30",
+                    selected
+                      ? "border-accent bg-accent/5"
+                      : isGreen
+                      ? "border-success/30 bg-success/[0.06]"
+                      : isRed
+                      ? "border-destructive/30 bg-destructive/[0.06]"
+                      : "border-border bg-card/50",
+                    today && !selected && !isGreen && !isRed && "border-accent/40"
+                  )}
+                  style={
+                    !selected && isGreen
+                      ? { boxShadow: "inset 0 0 12px hsl(var(--success) / 0.08)" }
+                      : !selected && isRed
+                      ? { boxShadow: "inset 0 0 12px hsl(var(--destructive) / 0.08)" }
+                      : undefined
+                  }
+                >
                   <span
                     className={cn(
-                      "text-lg font-bold sm:text-xl",
-                      isGreen
-                        ? "text-success"
-                        : isRed
-                        ? "text-destructive"
-                        : "text-muted-foreground"
+                      "mb-1 text-xs font-medium sm:text-sm",
+                      today &&
+                        "rounded-full bg-accent px-1.5 py-0.5 text-accent-foreground",
+                      !inMonth && "text-muted-foreground"
                     )}
                   >
-                    {pnl > 0 ? "+" : ""}${Math.abs(pnl).toLocaleString()}
+                    {format(day, "d")}
                   </span>
-                )}
 
-                {/* Trade count + notes indicators */}
-                <div className="absolute bottom-1.5 left-1.5 right-1.5 flex items-center justify-between">
-                  {tradeCount > 0 && (
-                    <span className="flex items-center gap-0.5 text-[9px] font-medium text-muted-foreground">
-                      <CrosshairIcon className="h-2.5 w-2.5" />
-                      {tradeCount}
+                  {hasPnl && (
+                    <span
+                      className={cn(
+                        "text-lg font-bold sm:text-xl",
+                        isGreen
+                          ? "text-success"
+                          : isRed
+                          ? "text-destructive"
+                          : "text-muted-foreground"
+                      )}
+                    >
+                      {pnl > 0 ? "+" : ""}${Math.abs(pnl).toLocaleString()}
                     </span>
                   )}
-                  {hasNotes && (
-                    <FileText className="ml-auto h-3 w-3 text-muted-foreground/60" />
-                  )}
-                </div>
-              </button>
+
+                  {/* Trade count + notes indicators */}
+                  <div className="absolute bottom-1.5 left-1.5 right-1.5 flex items-center justify-between">
+                    {tradeCount > 0 && (
+                      <span className="flex items-center gap-0.5 text-[9px] font-medium text-muted-foreground">
+                        <CrosshairIcon className="h-2.5 w-2.5" />
+                        {tradeCount}
+                      </span>
+                    )}
+                    {hasNotes && (
+                      <FileText className="ml-auto h-3 w-3 text-muted-foreground/60" />
+                    )}
+                  </div>
+                </button>
+
+                {/* Weekly summary cell */}
+                {isEndOfWeek && (
+                  <div
+                    key={`week-${idx}`}
+                    className={cn(
+                      "flex min-h-[90px] flex-col items-center justify-center rounded-lg border p-1.5 sm:min-h-[100px] sm:p-2",
+                      "bg-muted/30 border-muted-foreground/20",
+                      weeklyPnl > 0 && "border-success/30 bg-success/[0.04]",
+                      weeklyPnl < 0 && "border-destructive/30 bg-destructive/[0.04]"
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "text-lg font-bold sm:text-xl",
+                        weeklyPnl > 0
+                          ? "text-success"
+                          : weeklyPnl < 0
+                          ? "text-destructive"
+                          : "text-muted-foreground"
+                      )}
+                    >
+                      {weeklyPnl !== 0 ? (weeklyPnl > 0 ? "+" : "") + "$" + Math.abs(weeklyPnl).toLocaleString() : "—"}
+                    </span>
+                    {weeklyTrades > 0 && (
+                      <span className="mt-1 flex items-center gap-0.5 text-[10px] font-medium text-muted-foreground">
+                        <CrosshairIcon className="h-2.5 w-2.5" />
+                        {weeklyTrades} trades
+                      </span>
+                    )}
+                  </div>
+                )}
+              </React.Fragment>
             );
           })}
         </div>
