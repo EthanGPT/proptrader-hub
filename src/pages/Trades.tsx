@@ -858,6 +858,18 @@ function ImportForm({
     }));
   }, [allAccounts]);
 
+  // Helper to parse numbers, handling accounting format (123.45) = -123.45
+  const parseNumber = (str: string): number => {
+    if (!str) return 0;
+    const trimmed = str.trim();
+    // Check for accounting format: (123.45) means negative
+    const isNegative = trimmed.startsWith("(") && trimmed.endsWith(")");
+    // Remove everything except digits, decimal, and minus
+    const cleaned = trimmed.replace(/[^0-9.-]/g, "");
+    const num = parseFloat(cleaned) || 0;
+    return isNegative ? -Math.abs(num) : num;
+  };
+
   const parseCSV = (text: string) => {
     setError("");
     const lines = text.trim().split("\n");
@@ -876,40 +888,41 @@ function ImportForm({
     const cols = {
       instrument: findCol("instrument", "symbol", "ticker"),
       contracts: findCol("contract", "qty", "quantity", "size", "lot"),
-      entry: findCol("entry", "open", "buy"),
+      entry: findCol("entry", "open", "buy", "avg", "price"),
       exit: findCol("exit", "close", "sell"),
-      pnl: findCol("pnl", "p&l", "profit", "net"),
-      date: findCol("date", "time", "timestamp"),
-      direction: findCol("direction", "side", "type"),
+      pnl: findCol("pnl", "p&l", "profit", "net", "realized"),
+      date: findCol("date", "time", "timestamp", "exec"),
+      direction: findCol("direction", "side", "type", "action"),
     };
 
     const trades: Omit<Trade, "id">[] = [];
 
     for (let i = 1; i < lines.length; i++) {
-      const values = lines[i].split(",").map(v => v.trim().replace(/['"$()]/g, ""));
+      // Don't strip parentheses here - we need them for negative detection
+      const values = lines[i].split(",").map(v => v.trim().replace(/['"$]/g, ""));
       if (values.length < 2) continue;
 
-      // Parse P&L
+      // Parse P&L - handles (50.00) as -50.00 and -50.00 as -50.00
       let pnl = 0;
       if (cols.pnl >= 0 && values[cols.pnl]) {
-        const pnlStr = values[cols.pnl].replace(/[^0-9.-]/g, "");
-        pnl = parseFloat(pnlStr) || 0;
+        pnl = parseNumber(values[cols.pnl]);
       }
 
       // Parse contracts
       let contracts = 1;
       if (cols.contracts >= 0 && values[cols.contracts]) {
-        contracts = parseInt(values[cols.contracts]) || 1;
+        contracts = Math.abs(parseInt(values[cols.contracts])) || 1;
       }
 
-      // Parse entry/exit
+      // Parse entry/exit - preserve negatives for prices (though rare)
       let entry = 0;
       let exit: number | undefined;
       if (cols.entry >= 0 && values[cols.entry]) {
-        entry = parseFloat(values[cols.entry].replace(/[^0-9.]/g, "")) || 0;
+        entry = parseNumber(values[cols.entry]);
       }
       if (cols.exit >= 0 && values[cols.exit]) {
-        exit = parseFloat(values[cols.exit].replace(/[^0-9.]/g, "")) || undefined;
+        const exitVal = parseNumber(values[cols.exit]);
+        exit = exitVal !== 0 ? exitVal : undefined;
       }
 
       // Parse date
@@ -917,13 +930,23 @@ function ImportForm({
       let time = "";
       if (cols.date >= 0 && values[cols.date]) {
         const dateStr = values[cols.date];
-        // Try to parse various date formats
-        const dateMatch = dateStr.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
-        if (dateMatch) {
-          const [, m, d, y] = dateMatch;
-          const year = y.length === 2 ? `20${y}` : y;
-          date = `${year}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+
+        // Try ISO format first: YYYY-MM-DD or YYYY/MM/DD
+        const isoMatch = dateStr.match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+        if (isoMatch) {
+          const [, y, m, d] = isoMatch;
+          date = `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+        } else {
+          // Try MM/DD/YYYY or MM-DD-YYYY format
+          const usMatch = dateStr.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+          if (usMatch) {
+            const [, m, d, y] = usMatch;
+            const year = y.length === 2 ? `20${y}` : y;
+            date = `${year}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+          }
         }
+
+        // Parse time component
         const timeMatch = dateStr.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
         if (timeMatch) {
           time = `${timeMatch[1].padStart(2, "0")}:${timeMatch[2]}`;
@@ -999,12 +1022,6 @@ function ImportForm({
     }
   };
 
-  // Re-parse when account or setup changes
-  const updateTradesWithSettings = () => {
-    if (parsedTrades.length > 0) {
-      setParsedTrades(trades => trades.map(t => ({ ...t, accountId, setupId })));
-    }
-  };
 
   return (
     <div className="space-y-4">

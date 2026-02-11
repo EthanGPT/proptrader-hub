@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { format, parseISO, startOfMonth, endOfMonth, addMonths, subMonths, isToday, isSameMonth, isSameDay, addDays } from 'date-fns';
+import { format, parseISO, startOfMonth, endOfMonth, addMonths, subMonths, isToday, isSameMonth, isSameDay } from 'date-fns';
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, AlertTriangle, TrendingUp, RefreshCw, Filter, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -14,59 +14,20 @@ import {
 import { HIGH_IMPACT_RELEASES, EventImpact } from '@/types';
 import { cn } from '@/lib/utils';
 
-// Generate all Thursdays in 2026 for weekly jobless claims
-function generateWeeklyDates(startDate: string, dayOfWeek: number): string[] {
-  const dates: string[] = [];
-  const date = new Date(startDate);
-  // Find first occurrence of dayOfWeek
-  while (date.getDay() !== dayOfWeek) {
-    date.setDate(date.getDate() + 1);
-  }
-  // Generate all occurrences in 2026
-  while (date.getFullYear() === 2026) {
-    dates.push(format(date, 'yyyy-MM-dd'));
-    date.setDate(date.getDate() + 7);
-  }
-  return dates;
-}
+const API_URL = import.meta.env.VITE_R2_API_URL;
 
-interface ScheduledRelease {
-  releaseId: string;
-  dates: string[];
-}
-
-// Complete 2026 Economic Calendar - All high-impact US events
-// Sources: BLS, BEA, Federal Reserve, ISM, Conference Board
-const SCHEDULED_RELEASES_2026: ScheduledRelease[] = [
-  // NFP - First Friday of month
-  { releaseId: 'nfp', dates: ['2026-01-09', '2026-02-06', '2026-03-06', '2026-04-03', '2026-05-08', '2026-06-05', '2026-07-02', '2026-08-07', '2026-09-04', '2026-10-02', '2026-11-06', '2026-12-04'] },
-  // CPI - Usually 10th-14th of month
-  { releaseId: 'cpi', dates: ['2026-01-14', '2026-02-12', '2026-03-11', '2026-04-10', '2026-05-12', '2026-06-10', '2026-07-14', '2026-08-12', '2026-09-11', '2026-10-14', '2026-11-10', '2026-12-10'] },
-  // FOMC - 8 meetings per year
-  { releaseId: 'fomc', dates: ['2026-01-29', '2026-03-18', '2026-05-06', '2026-06-17', '2026-07-29', '2026-09-16', '2026-11-04', '2026-12-16'] },
-  // GDP - End of month (Advance, Second, Third estimates)
-  { releaseId: 'gdp', dates: ['2026-01-29', '2026-02-26', '2026-03-26', '2026-04-29', '2026-05-28', '2026-06-25', '2026-07-30', '2026-08-27', '2026-09-30', '2026-10-29', '2026-11-25', '2026-12-23'] },
-  // Core PCE - End of month with Personal Income
-  { releaseId: 'pce', dates: ['2026-01-30', '2026-02-27', '2026-03-27', '2026-04-30', '2026-05-29', '2026-06-26', '2026-07-31', '2026-08-28', '2026-10-01', '2026-10-30', '2026-11-27', '2026-12-24'] },
-  // PPI - Usually 11th-15th of month
-  { releaseId: 'ppi', dates: ['2026-01-15', '2026-02-13', '2026-03-12', '2026-04-09', '2026-05-14', '2026-06-11', '2026-07-15', '2026-08-13', '2026-09-15', '2026-10-08', '2026-11-12', '2026-12-11'] },
-  // Retail Sales - Around 14th-17th of month
-  { releaseId: 'retail', dates: ['2026-01-16', '2026-02-17', '2026-03-17', '2026-04-15', '2026-05-15', '2026-06-16', '2026-07-16', '2026-08-14', '2026-09-16', '2026-10-16', '2026-11-17', '2026-12-15'] },
-  // ISM Manufacturing PMI - First business day of month
-  { releaseId: 'ism_mfg', dates: ['2026-01-02', '2026-02-02', '2026-03-02', '2026-04-01', '2026-05-01', '2026-06-01', '2026-07-01', '2026-08-03', '2026-09-01', '2026-10-01', '2026-11-02', '2026-12-01'] },
-  // ISM Services PMI - Third business day of month
-  { releaseId: 'ism_svc', dates: ['2026-01-06', '2026-02-04', '2026-03-04', '2026-04-03', '2026-05-05', '2026-06-03', '2026-07-06', '2026-08-05', '2026-09-03', '2026-10-05', '2026-11-04', '2026-12-03'] },
-  // ADP Employment - Wednesday before NFP
-  { releaseId: 'adp', dates: ['2026-01-07', '2026-02-04', '2026-03-04', '2026-04-01', '2026-05-06', '2026-06-03', '2026-07-01', '2026-08-05', '2026-09-02', '2026-09-30', '2026-11-04', '2026-12-02'] },
-  // Consumer Confidence - Last Tuesday of month
-  { releaseId: 'consumer_conf', dates: ['2026-01-27', '2026-02-24', '2026-03-31', '2026-04-28', '2026-05-26', '2026-06-30', '2026-07-28', '2026-08-25', '2026-09-29', '2026-10-27', '2026-11-24', '2026-12-29'] },
-  // Durable Goods Orders - Around 26th of month
-  { releaseId: 'durable', dates: ['2026-01-27', '2026-02-25', '2026-03-25', '2026-04-24', '2026-05-27', '2026-06-24', '2026-07-27', '2026-08-26', '2026-09-24', '2026-10-27', '2026-11-25', '2026-12-23'] },
-  // Michigan Consumer Sentiment - Prelim mid-month, Final end of month
-  { releaseId: 'michigan', dates: ['2026-01-16', '2026-01-30', '2026-02-13', '2026-02-27', '2026-03-13', '2026-03-27', '2026-04-10', '2026-04-24', '2026-05-15', '2026-05-29', '2026-06-12', '2026-06-26', '2026-07-10', '2026-07-24', '2026-08-14', '2026-08-28', '2026-09-11', '2026-09-25', '2026-10-16', '2026-10-30', '2026-11-13', '2026-11-27', '2026-12-11', '2026-12-23'] },
-  // Initial Jobless Claims - Every Thursday
-  { releaseId: 'claims', dates: generateWeeklyDates('2026-01-01', 4) },
-];
+// FRED Release IDs mapped to our event keys
+const FRED_RELEASE_MAP: Record<number, string> = {
+  50: 'nfp',       // Employment Situation
+  10: 'cpi',       // Consumer Price Index
+  46: 'ppi',       // Producer Price Index
+  53: 'gdp',       // Gross Domestic Product
+  54: 'pce',       // Personal Income and Outlays (includes Core PCE)
+  9: 'retail',     // Advance Monthly Sales for Retail
+  95: 'durable',   // Manufacturer's Shipments, Inventories, and Orders (M3)
+  180: 'claims',   // Unemployment Insurance Weekly Claims
+  194: 'adp',      // ADP National Employment Report
+};
 
 interface EconomicEvent {
   id: string;
@@ -80,8 +41,8 @@ interface EconomicEvent {
   previous?: string;
 }
 
-const CACHE_KEY = 'proptracker_economic_events_cache_v2';
-const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours
+const CACHE_KEY = 'proptracker_economic_events_cache_v7';
+const CACHE_DURATION = 6 * 60 * 60 * 1000; // 6 hours
 
 function getCachedEvents(): { events: EconomicEvent[]; timestamp: number } | null {
   try {
@@ -97,7 +58,8 @@ function setCachedEvents(events: EconomicEvent[]): void {
   localStorage.setItem(CACHE_KEY, JSON.stringify({ events, timestamp: Date.now() }));
 }
 
-function getScheduledReleases(): EconomicEvent[] {
+// Fetch scheduled releases from FRED API for each specific release we care about
+async function fetchAllReleases(): Promise<EconomicEvent[]> {
   const today = new Date();
   const startDate = format(subMonths(today, 1), 'yyyy-MM-dd');
   const endDate = format(addMonths(today, 3), 'yyyy-MM-dd');
@@ -105,24 +67,43 @@ function getScheduledReleases(): EconomicEvent[] {
   const releaseMap = new Map(HIGH_IMPACT_RELEASES.map(r => [r.id, r]));
   const events: EconomicEvent[] = [];
 
-  for (const schedule of SCHEDULED_RELEASES_2026) {
-    const releaseInfo = releaseMap.get(schedule.releaseId);
-    if (!releaseInfo) continue;
+  // Fetch each release ID individually to avoid the 1000 limit issue
+  const releaseIds = Object.entries(FRED_RELEASE_MAP);
+  console.log('[EconCal] Fetching', releaseIds.length, 'release types from', startDate, 'to', endDate);
 
-    for (const date of schedule.dates) {
-      if (date >= startDate && date <= endDate) {
-        events.push({
-          id: `${schedule.releaseId}-${date}`,
-          releaseId: schedule.releaseId,
-          name: releaseInfo.name,
-          date,
-          time: releaseInfo.time,
-          impact: releaseInfo.impact,
-          affectsInstruments: [...releaseInfo.affects],
-        });
+  const fetchPromises = releaseIds.map(async ([releaseId, key]) => {
+    const url = `${API_URL}/fred/release/${releaseId}?start=${startDate}&end=${endDate}`;
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        console.error(`[EconCal] Failed to fetch release ${releaseId}:`, response.status);
+        return [];
       }
+      const data = await response.json();
+      const dates = data.release_dates || [];
+
+      const releaseInfo = releaseMap.get(key);
+      if (!releaseInfo) return [];
+
+      return dates.map((rel: { date: string }) => ({
+        id: `${key}-${rel.date}`,
+        releaseId: key,
+        name: releaseInfo.name,
+        date: rel.date,
+        time: releaseInfo.time,
+        impact: releaseInfo.impact,
+        affectsInstruments: [...releaseInfo.affects],
+      }));
+    } catch (error) {
+      console.error(`[EconCal] Error fetching release ${releaseId}:`, error);
+      return [];
     }
-  }
+  });
+
+  const results = await Promise.all(fetchPromises);
+  results.forEach(releaseEvents => events.push(...releaseEvents));
+
+  console.log('[EconCal] Total events fetched:', events.length);
 
   return events.sort((a, b) => {
     if (a.date !== b.date) return a.date.localeCompare(b.date);
@@ -152,13 +133,15 @@ export default function EconomicCalendar() {
   const [filterInstruments, setFilterInstruments] = useState<string[]>(['MNQ', 'GC']);
   const [filterImpact, setFilterImpact] = useState<EventImpact[]>(['high', 'medium']);
 
-  const loadEvents = (forceRefresh = false) => {
+  const loadEvents = async (forceRefresh = false) => {
+    console.log('[EconCal] loadEvents called, forceRefresh:', forceRefresh);
     setLoading(true);
     setError(null);
 
     if (!forceRefresh) {
       const cached = getCachedEvents();
       if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+        console.log('[EconCal] Using cached events:', cached.events.length);
         setEvents(cached.events);
         setLoading(false);
         return;
@@ -166,12 +149,14 @@ export default function EconomicCalendar() {
     }
 
     try {
-      const scheduledEvents = getScheduledReleases();
-      setEvents(scheduledEvents);
-      setCachedEvents(scheduledEvents);
+      console.log('[EconCal] Fetching fresh data...');
+      const fetchedEvents = await fetchAllReleases();
+      console.log('[EconCal] Fetched events:', fetchedEvents.length);
+      setEvents(fetchedEvents);
+      setCachedEvents(fetchedEvents);
     } catch (err) {
-      setError('Failed to load economic events.');
-      console.error(err);
+      setError('Failed to load economic events from FRED API.');
+      console.error('[EconCal] Error:', err);
     } finally {
       setLoading(false);
     }
