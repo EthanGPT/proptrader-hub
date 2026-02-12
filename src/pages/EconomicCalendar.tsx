@@ -41,7 +41,7 @@ interface EconomicEvent {
   previous?: string;
 }
 
-const CACHE_KEY = 'proptracker_economic_events_cache_v7';
+const CACHE_KEY = 'proptracker_economic_events_cache_v8'; // Bumped to clear bad cache
 const CACHE_DURATION = 6 * 60 * 60 * 1000; // 6 hours
 
 function getCachedEvents(): { events: EconomicEvent[]; timestamp: number } | null {
@@ -60,6 +60,11 @@ function setCachedEvents(events: EconomicEvent[]): void {
 
 // Fetch scheduled releases from FRED API for each specific release we care about
 async function fetchAllReleases(): Promise<EconomicEvent[]> {
+  if (!API_URL) {
+    console.error('[EconCal] API_URL not configured');
+    return [];
+  }
+
   const today = new Date();
   const startDate = format(subMonths(today, 1), 'yyyy-MM-dd');
   const endDate = format(addMonths(today, 3), 'yyyy-MM-dd');

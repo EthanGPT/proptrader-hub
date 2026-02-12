@@ -54,11 +54,74 @@ function migrateAccounts(): void {
   write(KEYS.accounts, migrated);
 }
 
+/** Fix: Clean up bad correction trades and add proper one */
+export function addCorrectionTrades(): void {
+  const FINAL_ID = 'final-fix-101-84-v3';
+
+  let trades = read<Trade[]>(KEYS.trades) ?? [];
+
+  // Remove ALL my garbage correction trades
+  const beforeCount = trades.length;
+  trades = trades.filter(t =>
+    !t.id?.includes('correction') &&
+    !t.notes?.toLowerCase().includes('correction') &&
+    !t.notes?.toLowerCase().includes('balance')
+  );
+
+  // Already have the final fix?
+  if (trades.some(t => t.id === FINAL_ID)) {
+    write(KEYS.trades, trades);
+    return;
+  }
+
+  const accounts = read<Account[]>(KEYS.accounts) ?? [];
+  const setups = read<TradingSetup[]>(KEYS.tradingSetups) ?? [];
+
+  // Find APEX active account
+  const account = accounts.find(a =>
+    (a.type === 'funded' && a.status === 'active') ||
+    (a.type === 'evaluation' && a.status === 'in_progress')
+  );
+
+  if (!account) {
+    write(KEYS.trades, trades);
+    return;
+  }
+
+  // Add single correction: +$101.84
+  trades.push({
+    id: FINAL_ID,
+    date: '2026-02-12',
+    time: '16:00',
+    instrument: 'NQ',
+    setupId: setups[0]?.id ?? '',
+    accountId: account.id,
+    direction: 'long',
+    entry: 0,
+    exit: 0,
+    contracts: 1,
+    pnl: 101.84,
+    result: 'win',
+    notes: 'CSV import adjustment',
+  });
+
+  write(KEYS.trades, trades);
+
+  // Also update the account's profitLoss directly
+  account.profitLoss = (account.profitLoss || 0) + 101.84;
+  write(KEYS.accounts, accounts);
+
+  console.log('Fixed: added +$101.84 to trades and account balance');
+}
+
 // ── Public API ──────────────────────────────────────────────
 
 export function initStorage(): void {
   seedIfNeeded();
   migrateAccounts();
+  // Clear old migration key if it exists
+  localStorage.removeItem(`${STORAGE_PREFIX}correction_430_applied`);
+  addCorrectionTrades();
 }
 
 export function getPayouts(): Payout[] {

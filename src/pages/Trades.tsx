@@ -552,6 +552,7 @@ function TradeForm({
     e.preventDefault();
     const trade = {
       ...formData,
+      entry: formData.entry ?? 0,
       pnl: formData.pnl ?? 0,
       contracts: formData.contracts ?? 1,
     };
@@ -671,7 +672,6 @@ function TradeForm({
             step="any"
             value={formData.entry ?? ""}
             onChange={(e) => set({ entry: e.target.value !== '' ? parseFloat(e.target.value) : undefined })}
-            required
           />
         </div>
         <div className="space-y-1">
@@ -864,43 +864,83 @@ function ImportForm({
     const trimmed = str.trim();
     // Check for accounting format: (123.45) means negative
     const isNegative = trimmed.startsWith("(") && trimmed.endsWith(")");
-    // Remove everything except digits, decimal, and minus
+    // Remove everything except digits, decimal, and minus (strips commas, $, etc.)
     const cleaned = trimmed.replace(/[^0-9.-]/g, "");
     const num = parseFloat(cleaned) || 0;
     return isNegative ? -Math.abs(num) : num;
   };
 
+  // Proper CSV line parser that handles quoted fields with commas
+  const parseCSVLine = (line: string): string[] => {
+    const result: string[] = [];
+    let current = "";
+    let inQuotes = false;
+
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      const nextChar = line[i + 1];
+
+      if (inQuotes) {
+        if (char === '"' && nextChar === '"') {
+          // Escaped quote
+          current += '"';
+          i++;
+        } else if (char === '"') {
+          // End of quoted field
+          inQuotes = false;
+        } else {
+          current += char;
+        }
+      } else {
+        if (char === '"') {
+          // Start of quoted field
+          inQuotes = true;
+        } else if (char === ',') {
+          // Field separator
+          result.push(current.trim());
+          current = "";
+        } else {
+          current += char;
+        }
+      }
+    }
+    // Don't forget the last field
+    result.push(current.trim());
+    return result;
+  };
+
   const parseCSV = (text: string) => {
     setError("");
-    const lines = text.trim().split("\n");
+    const lines = text.trim().split("\n").map(l => l.replace(/\r$/, "")); // Handle Windows line endings
     if (lines.length < 2) {
       setError("CSV must have headers and at least one data row");
       return;
     }
 
-    // Parse headers (case-insensitive)
-    const headers = lines[0].split(",").map(h => h.trim().toLowerCase().replace(/['"]/g, ""));
+    // Parse headers (case-insensitive) using proper CSV parsing
+    const headers = parseCSVLine(lines[0]).map(h => h.toLowerCase().replace(/['"]/g, ""));
 
     // Find column indices
     const findCol = (...names: string[]) =>
       headers.findIndex(h => names.some(n => h.includes(n)));
 
     const cols = {
-      instrument: findCol("instrument", "symbol", "ticker"),
-      contracts: findCol("contract", "qty", "quantity", "size", "lot"),
-      entry: findCol("entry", "open", "buy", "avg", "price"),
-      exit: findCol("exit", "close", "sell"),
-      pnl: findCol("pnl", "p&l", "profit", "net", "realized"),
-      date: findCol("date", "time", "timestamp", "exec"),
-      direction: findCol("direction", "side", "type", "action"),
+      instrument: findCol("instrument", "symbol", "ticker", "contract"),
+      contracts: findCol("qty", "quantity", "size", "lot", "filled"),
+      entry: findCol("entry", "avg", "fill", "price"),
+      exit: findCol("exit", "close"),
+      pnl: findCol("pnl", "p&l", "profit", "net", "realized", "gain"),
+      date: findCol("date", "exec", "timestamp"),
+      time: findCol("time", "exec time"),
+      direction: findCol("direction", "side", "b/s", "action", "type"),
     };
 
     const trades: Omit<Trade, "id">[] = [];
 
     for (let i = 1; i < lines.length; i++) {
-      // Don't strip parentheses here - we need them for negative detection
-      const values = lines[i].split(",").map(v => v.trim().replace(/['"$]/g, ""));
-      if (values.length < 2) continue;
+      // Use proper CSV parsing that handles quoted fields with commas
+      const values = parseCSVLine(lines[i]).map(v => v.replace(/^["']|["']$/g, "")); // Strip outer quotes only
+      if (values.length < 2 || values.every(v => !v.trim())) continue;
 
       // Parse P&L - handles (50.00) as -50.00 and -50.00 as -50.00
       let pnl = 0;
@@ -946,8 +986,17 @@ function ImportForm({
           }
         }
 
-        // Parse time component
+        // Parse time from date column
         const timeMatch = dateStr.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+        if (timeMatch) {
+          time = `${timeMatch[1].padStart(2, "0")}:${timeMatch[2]}`;
+        }
+      }
+
+      // Check separate time column
+      if (!time && cols.time >= 0 && values[cols.time]) {
+        const timeStr = values[cols.time];
+        const timeMatch = timeStr.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
         if (timeMatch) {
           time = `${timeMatch[1].padStart(2, "0")}:${timeMatch[2]}`;
         }
@@ -966,11 +1015,14 @@ function ImportForm({
         else instrument = sym.slice(0, 6);
       }
 
-      // Determine direction from P&L or explicit column
+      // Determine direction from explicit column
       let direction: "long" | "short" = "long";
       if (cols.direction >= 0 && values[cols.direction]) {
-        const dir = values[cols.direction].toLowerCase();
-        direction = dir.includes("short") || dir.includes("sell") ? "short" : "long";
+        const dir = values[cols.direction].toLowerCase().trim();
+        // Check for short: "short", "sell", "s", "-1", "-"
+        if (dir === "s" || dir === "short" || dir === "sell" || dir === "-1" || dir === "-" || dir.startsWith("sell") || dir.startsWith("short")) {
+          direction = "short";
+        }
       }
 
       // Determine result
@@ -1089,13 +1141,15 @@ function ImportForm({
           <p className="text-sm font-medium">
             Preview: {parsedTrades.length} trades to import
           </p>
-          <div className="max-h-40 overflow-auto rounded border p-2 text-xs">
+          <div className="max-h-48 overflow-auto rounded border p-2 text-xs">
             <table className="w-full">
               <thead>
                 <tr className="text-muted-foreground">
                   <th className="text-left">Date</th>
                   <th className="text-left">Instrument</th>
-                  <th className="text-right">Contracts</th>
+                  <th className="text-right">Entry</th>
+                  <th className="text-right">Exit</th>
+                  <th className="text-right">Qty</th>
                   <th className="text-right">P&L</th>
                 </tr>
               </thead>
@@ -1104,9 +1158,11 @@ function ImportForm({
                   <tr key={i}>
                     <td>{t.date}</td>
                     <td>{t.instrument}</td>
+                    <td className="text-right tabular-nums">{t.entry ? t.entry.toLocaleString() : "-"}</td>
+                    <td className="text-right tabular-nums">{t.exit ? t.exit.toLocaleString() : "-"}</td>
                     <td className="text-right">{t.contracts}</td>
                     <td className={cn(
-                      "text-right font-medium",
+                      "text-right font-medium tabular-nums",
                       t.pnl >= 0 ? "text-success" : "text-destructive"
                     )}>
                       {t.pnl >= 0 ? "+" : ""}${t.pnl.toFixed(2)}
@@ -1115,7 +1171,7 @@ function ImportForm({
                 ))}
                 {parsedTrades.length > 10 && (
                   <tr>
-                    <td colSpan={4} className="text-center text-muted-foreground">
+                    <td colSpan={6} className="text-center text-muted-foreground">
                       ... and {parsedTrades.length - 10} more
                     </td>
                   </tr>

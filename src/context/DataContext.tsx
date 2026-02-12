@@ -10,6 +10,7 @@ import {
   getTradingSetups, setTradingSetups as persistTradingSetups,
   getTrades, setTrades as persistTrades,
   isR2Configured, syncToR2, pullFromR2,
+  addCorrectionTrades,
 } from '@/lib/storage';
 
 export type SyncStatus = 'idle' | 'syncing' | 'synced' | 'error' | 'disabled';
@@ -202,6 +203,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
     if (isR2Configured()) {
       setSyncStatus('syncing');
       pullFromR2().then((pulled) => {
+        // Add correction trades AFTER R2 pull, then sync back
+        addCorrectionTrades();
+        syncToR2().catch(() => {});
         if (pulled) {
           // Re-read localStorage after R2 data was written into it
           loadData();
