@@ -10,7 +10,6 @@ import {
   getTradingSetups, setTradingSetups as persistTradingSetups,
   getTrades, setTrades as persistTrades,
   isR2Configured, syncToR2, pullFromR2,
-  addCorrectionTrades,
 } from '@/lib/storage';
 
 export type SyncStatus = 'idle' | 'syncing' | 'synced' | 'error' | 'disabled';
@@ -69,32 +68,35 @@ const DataContext = createContext<DataContextValue | null>(null);
 // Only recalculates accounts that have at least one linked trade.
 // Accounts with no trades keep their manual profitLoss.
 function recalcAccountPnl(accounts: Account[], allTrades: Trade[]): Account[] {
-  const tradingIds = accounts
-    .filter(a =>
-      (a.type === 'funded' && a.status === 'active') ||
-      (a.type === 'evaluation' && a.status === 'in_progress')
-    )
-    .map(a => a.id);
-  const splitCount = tradingIds.length;
-  const hasSplitTrades = allTrades.some(t => t.accountId === 'split');
+  const activeAccounts = accounts.filter(a =>
+    (a.type === 'funded' && a.status === 'active') ||
+    (a.type === 'evaluation' && a.status === 'in_progress')
+  );
+  const splitTrades = allTrades.filter(t => t.accountId === 'split');
 
   return accounts.map(account => {
+    const isActiveAccount = activeAccounts.some(a => a.id === account.id);
+
+    // Only recalculate ACTIVE accounts - inactive ones keep their historical P&L
+    if (!isActiveAccount) return account;
+
     const directTrades = allTrades.filter(t => t.accountId === account.id);
-    const hasDirectTrades = directTrades.length > 0;
-    const isSplitTarget = tradingIds.includes(account.id) && hasSplitTrades;
-
-    // Only recalc if this account has linked trades
-    if (!hasDirectTrades && !isSplitTarget) return account;
-
     const directPnl = directTrades.reduce((sum, t) => sum + t.pnl, 0);
 
+    // For split trades: only include trades from ON or AFTER this account's start date
     let splitPnl = 0;
-    if (isSplitTarget && splitCount > 0) {
-      splitPnl = allTrades
-        .filter(t => t.accountId === 'split')
-        .reduce((sum, t) => sum + (t.pnl / splitCount), 0);
+    for (const trade of splitTrades) {
+      // Skip trades from before this account existed
+      if (trade.date < account.startDate) continue;
+
+      // Count how many active accounts existed at the time of this trade
+      const accountsAtTradeTime = activeAccounts.filter(a => a.startDate <= trade.date).length;
+      if (accountsAtTradeTime > 0) {
+        splitPnl += trade.pnl / accountsAtTradeTime;
+      }
     }
 
+    // P&L = direct trades + applicable split trades (0 if none)
     const newPnl = Math.round((directPnl + splitPnl) * 100) / 100;
     const today = new Date().toISOString().split('T')[0];
 
@@ -193,23 +195,27 @@ export function DataProvider({ children }: { children: ReactNode }) {
     const loadData = () => {
       _setPayouts(getPayouts());
       _setExpenses(getExpenses());
-      _setAccounts(getAccounts());
       _setPropFirms(getPropFirms());
       _setDailyEntries(getDailyEntries());
       _setTradingSetups(getTradingSetups());
       _setTrades(getTrades());
+
+      // Recalculate account P&L from trades to fix any corrupted data
+      const accounts = getAccounts();
+      const trades = getTrades();
+      const fixedAccounts = recalcAccountPnl(accounts, trades);
+      persistAccounts(fixedAccounts);
+      _setAccounts(fixedAccounts);
     };
 
     if (isR2Configured()) {
       setSyncStatus('syncing');
       pullFromR2().then((pulled) => {
-        // Add correction trades AFTER R2 pull, then sync back
-        addCorrectionTrades();
-        syncToR2().catch(() => {});
         if (pulled) {
           // Re-read localStorage after R2 data was written into it
           loadData();
-          setSyncStatus('synced');
+          // Sync the fixed account data back to R2
+          syncToR2().then(() => setSyncStatus('synced')).catch(() => setSyncStatus('error'));
         } else {
           loadData();
           setSyncStatus('idle');
