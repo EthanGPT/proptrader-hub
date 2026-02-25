@@ -16,9 +16,10 @@ export interface Expense {
   notes?: string;
 }
 
-export type AccountType = 'evaluation' | 'funded';
+export type AccountType = 'evaluation' | 'funded' | 'demo';
 export type EvaluationStatus = 'passed' | 'failed' | 'in_progress';
 export type FundedStatus = 'active' | 'breached' | 'withdrawn';
+export type DemoStatus = 'active' | 'closed';
 
 export interface Account {
   id: string;
@@ -26,11 +27,11 @@ export interface Account {
   propFirm: string;
   accountSize: number;
   startDate: string;
-  status: EvaluationStatus | FundedStatus;
+  status: EvaluationStatus | FundedStatus | DemoStatus;
   endDate?: string;
   profitLoss: number;
   maxDrawdown?: number;    // max loss $ before auto-breach/fail
-  profitTarget?: number;   // profit $ to auto-pass (evaluations)
+  profitTarget?: number;   // profit $ to auto-pass (evaluations) or optional demo target
   notes?: string;
 }
 

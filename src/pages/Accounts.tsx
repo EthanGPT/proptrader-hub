@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { format } from "date-fns";
-import { Plus, Pencil, Trash2, CheckCircle2, XCircle, Clock, Wallet, AlertTriangle, LogOut, Eye, EyeOff } from "lucide-react";
+import { Plus, Pencil, Trash2, CheckCircle2, XCircle, Clock, Wallet, AlertTriangle, LogOut, Eye, EyeOff, Monitor } from "lucide-react";
 import { useData } from "@/context/DataContext";
-import { ACCOUNT_SIZES, Account, AccountType, EvaluationStatus, FundedStatus } from "@/types";
+import { ACCOUNT_SIZES, Account, AccountType, EvaluationStatus, FundedStatus, DemoStatus } from "@/types";
 import { Button } from "@/components/ui/button";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
@@ -27,9 +27,17 @@ const fundedStatusConfig = {
   withdrawn: { icon: LogOut, color: 'text-muted-foreground', bg: 'bg-secondary', label: 'Withdrawn' },
 } as const;
 
+const demoStatusConfig = {
+  active: { icon: Monitor, color: 'text-accent', bg: 'bg-accent/10', label: 'Active' },
+  closed: { icon: XCircle, color: 'text-muted-foreground', bg: 'bg-secondary', label: 'Closed' },
+} as const;
+
 function getStatusConfig(account: Account) {
   if (account.type === 'funded') {
     return fundedStatusConfig[account.status as FundedStatus] ?? fundedStatusConfig.active;
+  }
+  if (account.type === 'demo') {
+    return demoStatusConfig[account.status as DemoStatus] ?? demoStatusConfig.active;
   }
   return evalStatusConfig[account.status as EvaluationStatus] ?? evalStatusConfig.in_progress;
 }
@@ -43,12 +51,15 @@ const Accounts = () => {
 
   const evaluations = accounts.filter(a => a.type === 'evaluation');
   const funded = accounts.filter(a => a.type === 'funded');
+  const demo = accounts.filter(a => a.type === 'demo');
 
   // Active accounts (not failed/breached)
   const activeEvaluations = evaluations.filter(a => a.status === 'in_progress' || a.status === 'passed');
   const failedEvaluations = evaluations.filter(a => a.status === 'failed');
   const activeFunded = funded.filter(a => a.status === 'active');
   const inactiveFunded = funded.filter(a => a.status === 'breached' || a.status === 'withdrawn');
+  const activeDemo = demo.filter(a => a.status === 'active');
+  const closedDemo = demo.filter(a => a.status === 'closed');
 
   // Evaluation stats
   const evalPassed = evaluations.filter(a => a.status === 'passed').length;
@@ -144,8 +155,8 @@ const Accounts = () => {
             </div>
           )}
 
-          {/* Profit target progress (eval only) */}
-          {account.type === 'evaluation' && account.profitTarget != null && account.profitTarget > 0 && (
+          {/* Profit target progress (eval and demo) */}
+          {(account.type === 'evaluation' || account.type === 'demo') && account.profitTarget != null && account.profitTarget > 0 && (
             <div className="space-y-1">
               <div className="flex justify-between text-[10px]">
                 <span className="text-muted-foreground">Target</span>
@@ -221,6 +232,10 @@ const Accounts = () => {
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-semibold">Active Accounts</h2>
           <div className="flex gap-2">
+            <Button onClick={() => openAddDialog('demo')} variant="outline">
+              <Plus className="mr-2 h-4 w-4" />
+              Add Demo
+            </Button>
             <Button onClick={() => openAddDialog('evaluation')} variant="outline">
               <Plus className="mr-2 h-4 w-4" />
               Add Evaluation
@@ -262,6 +277,14 @@ const Accounts = () => {
           </div>
         )}
 
+        {/* Demo Accounts */}
+        {activeDemo.length > 0 && (
+          <div className="space-y-3">
+            <h3 className="text-lg font-medium text-muted-foreground">Demo</h3>
+            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">{activeDemo.map(renderAccountCard)}</div>
+          </div>
+        )}
+
         {/* In Progress Evaluations */}
         {activeEvaluations.filter(a => a.status === 'in_progress').length > 0 && (
           <div className="space-y-3">
@@ -284,7 +307,7 @@ const Accounts = () => {
       </section>
 
       {/* ── Failed/Inactive Section (Toggle) ──────────────────────────────────── */}
-      {(failedEvaluations.length > 0 || inactiveFunded.length > 0) && (
+      {(failedEvaluations.length > 0 || inactiveFunded.length > 0 || closedDemo.length > 0) && (
         <section className="space-y-6">
           <Button
             variant="ghost"
@@ -296,7 +319,7 @@ const Accounts = () => {
               {showFailed ? 'Hide' : 'Show'} Failed & Inactive Accounts
             </span>
             <span className="text-sm text-muted-foreground">
-              {failedEvaluations.length + inactiveFunded.length} accounts
+              {failedEvaluations.length + inactiveFunded.length + closedDemo.length} accounts
             </span>
           </Button>
 
@@ -317,6 +340,14 @@ const Accounts = () => {
                   <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">{inactiveFunded.map(renderAccountCard)}</div>
                 </div>
               )}
+
+              {/* Closed Demo */}
+              {closedDemo.length > 0 && (
+                <div className="space-y-3">
+                  <h3 className="text-lg font-medium text-muted-foreground">Closed Demo ({closedDemo.length})</h3>
+                  <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">{closedDemo.map(renderAccountCard)}</div>
+                </div>
+              )}
             </div>
           )}
         </section>
@@ -334,13 +365,19 @@ interface AccountFormProps {
 
 function AccountForm({ onClose, onSave, initialData, defaultType = 'evaluation' }: AccountFormProps) {
   const { propFirms } = useData();
+  const getDefaultStatus = (type: AccountType) => {
+    if (type === 'funded') return 'active';
+    if (type === 'demo') return 'active';
+    return 'in_progress';
+  };
+
   const [formData, setFormData] = useState<Partial<Account>>(
     initialData || {
       type: defaultType,
-      propFirm: '',
+      propFirm: defaultType === 'demo' ? 'Demo' : '',
       accountSize: 10000,
       startDate: new Date().toISOString().split('T')[0],
-      status: defaultType === 'funded' ? 'active' : 'in_progress',
+      status: getDefaultStatus(defaultType),
       profitLoss: 0,
       maxDrawdown: undefined,
       profitTarget: undefined,
@@ -351,8 +388,9 @@ function AccountForm({ onClose, onSave, initialData, defaultType = 'evaluation' 
   const accountType = formData.type || 'evaluation';
 
   const handleTypeChange = (type: AccountType) => {
-    const newStatus = type === 'funded' ? 'active' : 'in_progress';
-    setFormData({ ...formData, type, status: newStatus });
+    const newStatus = getDefaultStatus(type);
+    const newPropFirm = type === 'demo' ? 'Demo' : formData.propFirm;
+    setFormData({ ...formData, type, status: newStatus, propFirm: newPropFirm });
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -367,6 +405,7 @@ function AccountForm({ onClose, onSave, initialData, defaultType = 'evaluation' 
         <Select value={accountType} onValueChange={(v) => handleTypeChange(v as AccountType)}>
           <SelectTrigger><SelectValue /></SelectTrigger>
           <SelectContent>
+            <SelectItem value="demo">Demo</SelectItem>
             <SelectItem value="evaluation">Evaluation</SelectItem>
             <SelectItem value="funded">Funded</SelectItem>
           </SelectContent>
@@ -374,15 +413,23 @@ function AccountForm({ onClose, onSave, initialData, defaultType = 'evaluation' 
       </div>
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
-          <Label htmlFor="propFirm">Prop Firm</Label>
-          <Select value={formData.propFirm} onValueChange={(value) => setFormData({ ...formData, propFirm: value })}>
-            <SelectTrigger><SelectValue placeholder="Select firm" /></SelectTrigger>
-            <SelectContent>
-              {propFirms.map((firm) => (
-                <SelectItem key={firm.id} value={firm.name}>{firm.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <Label htmlFor="propFirm">{accountType === 'demo' ? 'Account Name' : 'Prop Firm'}</Label>
+          {accountType === 'demo' ? (
+            <Input
+              value={formData.propFirm}
+              onChange={(e) => setFormData({ ...formData, propFirm: e.target.value })}
+              placeholder="e.g. Demo Account 1"
+            />
+          ) : (
+            <Select value={formData.propFirm} onValueChange={(value) => setFormData({ ...formData, propFirm: value })}>
+              <SelectTrigger><SelectValue placeholder="Select firm" /></SelectTrigger>
+              <SelectContent>
+                {propFirms.map((firm) => (
+                  <SelectItem key={firm.id} value={firm.name}>{firm.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
         </div>
         <div className="space-y-2">
           <Label htmlFor="accountSize">Account Size</Label>
@@ -396,9 +443,9 @@ function AccountForm({ onClose, onSave, initialData, defaultType = 'evaluation' 
           </Select>
         </div>
       </div>
-      <div className={cn("grid gap-4", accountType === 'evaluation' ? "sm:grid-cols-2" : "sm:grid-cols-1")}>
+      <div className={cn("grid gap-4", (accountType === 'evaluation' || accountType === 'demo') ? "sm:grid-cols-2" : "sm:grid-cols-1")}>
         <div className="space-y-2">
-          <Label htmlFor="maxDrawdown">Max Drawdown ($)</Label>
+          <Label htmlFor="maxDrawdown">Max Drawdown ($) {accountType === 'demo' && <span className="text-muted-foreground">(optional)</span>}</Label>
           <Input
             id="maxDrawdown"
             type="number"
@@ -408,11 +455,11 @@ function AccountForm({ onClose, onSave, initialData, defaultType = 'evaluation' 
             value={formData.maxDrawdown ?? ''}
             onChange={(e) => setFormData({ ...formData, maxDrawdown: e.target.value ? parseFloat(e.target.value) : undefined })}
           />
-          <p className="text-[10px] text-muted-foreground">Auto-fails/breaches when loss hits this amount</p>
+          <p className="text-[10px] text-muted-foreground">{accountType === 'demo' ? 'Track against a drawdown limit' : 'Auto-fails/breaches when loss hits this amount'}</p>
         </div>
-        {accountType === 'evaluation' && (
+        {(accountType === 'evaluation' || accountType === 'demo') && (
           <div className="space-y-2">
-            <Label htmlFor="profitTarget">Profit Target ($)</Label>
+            <Label htmlFor="profitTarget">Profit Target ($) {accountType === 'demo' && <span className="text-muted-foreground">(optional)</span>}</Label>
             <Input
               id="profitTarget"
               type="number"
@@ -422,7 +469,7 @@ function AccountForm({ onClose, onSave, initialData, defaultType = 'evaluation' 
               value={formData.profitTarget ?? ''}
               onChange={(e) => setFormData({ ...formData, profitTarget: e.target.value ? parseFloat(e.target.value) : undefined })}
             />
-            <p className="text-[10px] text-muted-foreground">Auto-passes when profit reaches this amount</p>
+            <p className="text-[10px] text-muted-foreground">{accountType === 'demo' ? 'Track against a profit goal' : 'Auto-passes when profit reaches this amount'}</p>
           </div>
         )}
       </div>
@@ -441,6 +488,11 @@ function AccountForm({ onClose, onSave, initialData, defaultType = 'evaluation' 
                   <SelectItem value="in_progress">In Progress</SelectItem>
                   <SelectItem value="passed">Passed</SelectItem>
                   <SelectItem value="failed">Failed</SelectItem>
+                </>
+              ) : accountType === 'demo' ? (
+                <>
+                  <SelectItem value="active">Active</SelectItem>
+                  <SelectItem value="closed">Closed</SelectItem>
                 </>
               ) : (
                 <>
