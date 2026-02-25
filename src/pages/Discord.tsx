@@ -53,7 +53,7 @@ export default function Discord() {
           </a>
         </div>
 
-        {/* Paid Discord (The Edge) */}
+        {/* Paid Discord (Edge) */}
         <div className="rounded-lg border border-accent bg-card p-6">
           <div className="flex items-center gap-3">
             <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-gold/20">
@@ -62,7 +62,7 @@ export default function Discord() {
             <div>
               <h2 className="text-xl font-semibold text-foreground">
                 Paid Discord{" "}
-                <span className="text-accent">(The Edge)</span>
+                <span className="text-accent">(Edge)</span>
               </h2>
               <p className="text-sm text-muted-foreground">For Edge members</p>
             </div>
@@ -91,7 +91,7 @@ export default function Discord() {
             to="/purchase"
             className="mt-6 flex w-full items-center justify-center gap-2 rounded-lg border border-accent py-3 font-semibold text-accent transition-colors hover:bg-accent/10"
           >
-            Upgrade to The Edge
+            Upgrade to Edge
             <ArrowRight className="h-4 w-4" />
           </Link>
         </div>

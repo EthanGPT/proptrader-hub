@@ -49,7 +49,7 @@ const plans = [
     note: "Indicator delivered via TradingView invite-only access through Whop.",
   },
   {
-    name: "The Edge",
+    name: "Edge",
     price: "$99",
     period: "/month",
     description: "The indicator + the community that makes you use it.",
@@ -61,7 +61,7 @@ const plans = [
       "Trading Journal access",
     ],
     featureNote: "Full strategy breakdown — from liquidity theory to step-by-step execution.",
-    cta: "Join The Edge →",
+    cta: "Join Edge →",
     ctaLink: "#",
     highlighted: true,
     badge: "MOST POPULAR",
@@ -76,7 +76,7 @@ const plans = [
     period: "/month",
     description: "Direct access. Capped at 20 members.",
     features: [
-      "Everything in The Edge",
+      "Everything in Edge",
       "30min 1-on-1, 1x per week, book from member hub",
       "Personal trade review before every session",
       "We go through your journal together",
@@ -113,9 +113,9 @@ const faqs = [
       "30-minute video calls, 1x per week. You book directly through the member hub. We review your trades, refine your execution, and work through any setups together. This is for traders who want personalized guidance.",
   },
   {
-    question: "Does Mentorship include everything from The Edge?",
+    question: "Does Mentorship include everything from Edge?",
     answer:
-      "Yes. Mentorship includes everything in The Edge tier — the indicator, the course PDF, paid Discord access, trade review requests, and the trading journal. Plus you get weekly 1-on-1 calls and personalized trade reviews before each session.",
+      "Yes. Mentorship includes everything in Edge tier — the indicator, the course PDF, paid Discord access, trade review requests, and the trading journal. Plus you get weekly 1-on-1 calls and personalized trade reviews before each session.",
   },
   {
     question: "Is this financial advice?",

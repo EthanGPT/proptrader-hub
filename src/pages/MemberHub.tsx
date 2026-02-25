@@ -22,7 +22,7 @@ export default function MemberHub() {
     <div className="space-y-8">
       {/* Header */}
       <div>
-        <h1 className="page-title">Welcome to The Edge</h1>
+        <h1 className="page-title">Welcome to Edge</h1>
         <p className="page-subtitle">Your trading mentorship member hub</p>
       </div>
 
@@ -79,18 +79,19 @@ export default function MemberHub() {
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gold/20">
             <FileText className="h-5 w-5 text-gold" />
           </div>
-          <h3 className="mt-3 font-semibold text-foreground">The Edge - Course</h3>
+          <h3 className="mt-3 font-semibold text-foreground">Edge Course</h3>
           <p className="mt-1 text-xs text-muted-foreground">
             Key Level Breakout System Guide
           </p>
           <a
-            href={hasEdgeAccess ? "/Key_Level_Breakout_Course.pdf" : "#"}
-            download={hasEdgeAccess ? "Key_Level_Breakout_Course.pdf" : undefined}
+            href={hasEdgeAccess ? "/Edge_Course.pdf" : "#"}
+            target={hasEdgeAccess ? "_blank" : undefined}
+            rel={hasEdgeAccess ? "noopener noreferrer" : undefined}
             className={`mt-3 inline-flex items-center gap-1 text-xs font-medium ${
               hasEdgeAccess ? "text-gold hover:underline" : "text-muted-foreground"
             }`}
           >
-            {hasEdgeAccess ? "Download PDF" : "Edge members only"} <ArrowRight className="h-3 w-3" />
+            {hasEdgeAccess ? "View Course" : "Edge members only"} <ArrowRight className="h-3 w-3" />
           </a>
         </div>
 
@@ -193,7 +194,7 @@ export default function MemberHub() {
               <div className="flex h-6 w-6 items-center justify-center rounded-full bg-accent/20 text-xs font-medium text-accent">3</div>
               <div>
                 <p className="text-sm font-medium text-foreground">Enter on Retest</p>
-                <p className="text-xs text-muted-foreground">40pt SL, 40pt TP, then trail</p>
+                <p className="text-xs text-muted-foreground">SL/TP varies by asset, then trail</p>
               </div>
             </div>
           </div>
@@ -241,25 +242,12 @@ export default function MemberHub() {
               to="/purchase"
               className="mt-6 flex w-full items-center justify-center gap-2 rounded-lg bg-accent py-2.5 text-sm font-semibold text-white transition-colors hover:bg-accent/90"
             >
-              Upgrade to The Edge <ArrowRight className="h-4 w-4" />
+              Upgrade to Edge <ArrowRight className="h-4 w-4" />
             </Link>
           )}
         </div>
       </div>
 
-      {/* Live Trade Record Placeholder */}
-      <div className="rounded-lg border border-border bg-card p-6">
-        <div className="flex items-center justify-between">
-          <h3 className="font-semibold text-foreground">Live Trade Record</h3>
-          <span className="text-xs text-muted-foreground">Updated daily</span>
-        </div>
-
-        <div className="mt-6 flex min-h-[200px] flex-col items-center justify-center rounded-lg border border-dashed border-border bg-background">
-          <BarChart3 className="h-10 w-10 text-muted-foreground" />
-          <p className="mt-3 text-sm text-muted-foreground">Live trade record coming soon</p>
-          <p className="mt-1 text-xs text-muted-foreground">Real trades, real P&L, full transparency</p>
-        </div>
-      </div>
     </div>
   );
 }

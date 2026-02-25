@@ -239,7 +239,7 @@ export function DailySnapshot({ onClose }: DailySnapshotProps) {
         {/* Footer watermark */}
         <div className="pt-2 text-center">
           <p className="text-[10px] text-zinc-600 uppercase tracking-widest">
-            PropTrader Hub
+            Edge
           </p>
         </div>
       </div>

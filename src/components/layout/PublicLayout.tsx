@@ -1,73 +1,79 @@
 import { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { PublicNavbar } from "./PublicNavbar";
-import { TrendingUp } from "lucide-react";
 
 interface PublicLayoutProps {
   children: ReactNode;
+  hideNav?: boolean;
+  hideFooter?: boolean;
 }
 
-export function PublicLayout({ children }: PublicLayoutProps) {
+export function PublicLayout({
+  children,
+  hideNav = false,
+  hideFooter = false,
+}: PublicLayoutProps) {
   return (
     <div className="min-h-screen flex flex-col">
-      <PublicNavbar />
+      {!hideNav && <PublicNavbar />}
       <main className="flex-1">{children}</main>
-      <Footer />
+      {!hideFooter && <Footer />}
     </div>
   );
 }
 
-function Footer() {
+export function Footer() {
   return (
-    <footer className="border-t border-border bg-background">
-      <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
-        <div className="flex flex-col items-center justify-between gap-6 md:flex-row">
+    <footer className="border-t border-[#1f1f1f] bg-[#080808]">
+      <div className="mx-auto max-w-7xl px-[60px] py-[80px]">
+        <div className="flex flex-col items-start justify-between gap-8 md:flex-row md:items-center">
           {/* Logo */}
-          <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent">
-              <TrendingUp className="h-4 w-4 text-white" />
-            </div>
-            <span className="text-lg font-semibold text-foreground">The Edge</span>
-          </div>
+          <Link to="/" className="flex items-center">
+            <span className="font-display text-xl font-bold uppercase tracking-tight text-[#c8f54a]">
+              Edge
+            </span>
+          </Link>
 
           {/* Links */}
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-8">
             <Link
               to="/"
-              className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+              className="font-mono text-[11px] uppercase tracking-[0.12em] text-[#888] transition-colors hover:text-[#f5f5f5]"
             >
-              Home
+              HOME
             </Link>
             <Link
               to="/courses"
-              className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+              className="font-mono text-[11px] uppercase tracking-[0.12em] text-[#888] transition-colors hover:text-[#f5f5f5]"
             >
-              Courses
+              SYSTEM
             </Link>
             <Link
               to="/purchase"
-              className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+              className="font-mono text-[11px] uppercase tracking-[0.12em] text-[#888] transition-colors hover:text-[#f5f5f5]"
             >
-              Pricing
+              PRICING
             </Link>
             <Link
               to="/discord"
-              className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+              className="font-mono text-[11px] uppercase tracking-[0.12em] text-[#888] transition-colors hover:text-[#f5f5f5]"
             >
-              Discord
+              DISCORD
             </Link>
           </div>
         </div>
 
         {/* Disclaimer */}
-        <div className="mt-8 border-t border-border pt-8">
-          <p className="text-center text-xs text-muted-foreground">
-            Not financial advice. For educational purposes only. Trading futures involves
-            substantial risk of loss and is not suitable for all investors. Past performance
-            is not indicative of future results.
+        <div className="mt-16 border-t border-[#1f1f1f] pt-8">
+          <p className="font-mono text-[10px] leading-relaxed text-[#555] max-w-3xl">
+            Simulated results. Past performance ≠ future results. Not financial
+            advice. Trading futures involves substantial risk of loss and is not
+            suitable for all investors. The indicator flags signals — the trader
+            places orders manually in their broker. This product does not
+            execute trades automatically.
           </p>
-          <p className="mt-2 text-center text-xs text-muted-foreground">
-            © {new Date().getFullYear()} The Edge. All rights reserved.
+          <p className="mt-4 font-mono text-[10px] text-[#555]">
+            © {new Date().getFullYear()} Edge. All rights reserved.
           </p>
         </div>
       </div>

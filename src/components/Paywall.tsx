@@ -46,7 +46,7 @@ export function Paywall({
               : 'bg-accent text-white hover:bg-accent/90'
           }`}
         >
-          {isForMentorship ? 'Apply for Mentorship — $199/mo →' : 'Join The Edge — $79/mo →'}
+          {isForMentorship ? 'Apply for Mentorship — $199/mo →' : 'Join Edge — $79/mo →'}
         </Link>
       </div>
     </div>

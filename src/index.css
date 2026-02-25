@@ -41,7 +41,7 @@
     --input: 214 32% 91%;
     --ring: 173 58% 39%;
 
-    --radius: 0.625rem;
+    --radius: 0px;
 
     --chart-1: 173 58% 39%;
     --chart-2: 160 84% 39%;
@@ -58,71 +58,77 @@
     --sidebar-border: 222 47% 18%;
     --sidebar-ring: 173 58% 45%;
     --sidebar-muted: 215 16% 65%;
+
+    /* Landing page specific */
+    --font-display: 'Syne', sans-serif;
+    --font-mono: 'DM Mono', monospace;
   }
 
   .dark {
-    /* Background: #0d1117 */
-    --background: 215 28% 7%;
-    /* Text: #e6edf3 */
-    --foreground: 210 33% 93%;
+    /* Site background: #080808 */
+    --background: 0 0% 3%;
+    /* Text: #f5f5f5 */
+    --foreground: 0 0% 96%;
 
-    /* Cards: #161b22 */
-    --card: 216 21% 11%;
-    --card-foreground: 210 33% 93%;
+    /* Cards: #141414 */
+    --card: 0 0% 8%;
+    --card-foreground: 0 0% 96%;
 
-    --popover: 216 21% 11%;
-    --popover-foreground: 210 33% 93%;
+    --popover: 0 0% 8%;
+    --popover-foreground: 0 0% 96%;
 
-    --primary: 210 33% 93%;
-    --primary-foreground: 215 28% 7%;
+    --primary: 0 0% 96%;
+    --primary-foreground: 0 0% 3%;
 
-    --secondary: 212 12% 16%;
-    --secondary-foreground: 210 33% 93%;
+    --secondary: 0 0% 10%;
+    --secondary-foreground: 0 0% 96%;
 
-    --muted: 212 12% 16%;
-    /* Muted: #8b949e */
-    --muted-foreground: 212 9% 58%;
+    --muted: 0 0% 10%;
+    /* Muted: #888 */
+    --muted-foreground: 0 0% 53%;
 
-    /* Accent/Green: #00c853 */
-    --accent: 145 100% 39%;
-    --accent-foreground: 215 28% 7%;
+    /* Accent: #c8f54a (acid green) */
+    --accent: 73 89% 62%;
+    --accent-foreground: 0 0% 4%;
 
     /* Green for success */
-    --success: 145 100% 39%;
-    --success-foreground: 215 28% 7%;
+    --success: 73 89% 62%;
+    --success-foreground: 0 0% 4%;
 
     /* Gold: #f0b429 */
     --gold: 43 88% 55%;
-    --gold-foreground: 215 28% 7%;
+    --gold-foreground: 0 0% 4%;
 
     --warning: 43 88% 55%;
-    --warning-foreground: 215 28% 7%;
+    --warning-foreground: 0 0% 4%;
 
     /* Red: #ef5350 */
     --destructive: 1 83% 63%;
-    --destructive-foreground: 210 33% 93%;
+    --destructive-foreground: 0 0% 96%;
 
-    /* Borders: #30363d */
-    --border: 212 12% 21%;
-    --input: 212 12% 24%;
-    --ring: 145 100% 39%;
+    /* Borders: #1f1f1f */
+    --border: 0 0% 12%;
+    --input: 0 0% 14%;
+    --ring: 73 89% 62%;
 
-    --chart-1: 145 100% 39%;
+    --radius: 0px;
+
+    --chart-1: 73 89% 62%;
     --chart-2: 43 88% 55%;
-    --chart-3: 210 33% 93%;
+    --chart-3: 0 0% 96%;
     --chart-4: 1 83% 63%;
-    --chart-5: 212 9% 58%;
+    --chart-5: 0 0% 53%;
 
     /* Sidebar - slightly darker than main background */
-    --sidebar-background: 215 28% 5%;
-    --sidebar-foreground: 210 33% 93%;
-    --sidebar-primary: 210 33% 93%;
-    --sidebar-primary-foreground: 215 28% 7%;
-    --sidebar-accent: 216 21% 11%;
-    --sidebar-accent-foreground: 210 33% 93%;
-    --sidebar-border: 212 12% 21%;
-    --sidebar-ring: 145 100% 39%;
-    --sidebar-muted: 212 9% 58%;
+    --sidebar-background: 0 0% 2%;
+    --sidebar-foreground: 0 0% 96%;
+    --sidebar-primary: 0 0% 96%;
+    --sidebar-primary-foreground: 0 0% 3%;
+    --sidebar-accent: 0 0% 8%;
+    --sidebar-accent-foreground: 0 0% 96%;
+    --sidebar-border: 0 0% 12%;
+    --sidebar-ring: 73 89% 62%;
+    --sidebar-muted: 0 0% 53%;
   }
 }
 
@@ -139,7 +145,7 @@
 
 @layer utilities {
   .stat-card {
-    @apply bg-card rounded-lg border border-border/60 p-5;
+    @apply bg-card border border-border/60 p-5;
   }
 
   .stat-card-interactive {
@@ -155,7 +161,7 @@
   }
 
   .tooltip-card {
-    @apply bg-popover border border-border rounded-lg p-3 text-xs shadow-md;
+    @apply bg-popover border border-border p-3 text-xs shadow-md;
   }
 
   .page-header {
@@ -168,5 +174,54 @@
 
   .page-subtitle {
     @apply text-sm text-muted-foreground mt-1;
+  }
+
+  /* Landing page typography utilities */
+  .font-display {
+    font-family: var(--font-display);
+  }
+
+  .font-mono {
+    font-family: var(--font-mono);
+  }
+
+  /* Hero title outlined effect */
+  .text-outlined {
+    -webkit-text-stroke: 2px #0a0a0a;
+    color: transparent;
+  }
+
+  /* Hero accent highlight */
+  .text-accent-highlight {
+    color: #0a0a0a;
+    background: #c8f54a;
+    padding: 0 16px;
+    display: inline-block;
+  }
+
+  /* Section label style */
+  .landing-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: #c8f54a;
+  }
+
+  /* Body/sub copy style */
+  .landing-body {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: #888;
+    line-height: 1.8;
+  }
+
+  /* CTA button style */
+  .landing-cta {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
   }
 }

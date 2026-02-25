@@ -96,7 +96,7 @@ export function AppSidebar() {
 
   const tierLabels = {
     free: 'Free Member',
-    edge: 'The Edge',
+    edge: 'Edge',
     mentorship: 'Mentorship',
   };
 
@@ -114,7 +114,7 @@ export function AppSidebar() {
             <TrendingUp className="h-3.5 w-3.5 text-white" />
           </div>
           <div>
-            <h1 className="text-sm font-semibold text-sidebar-foreground">The Edge</h1>
+            <h1 className="text-sm font-semibold text-sidebar-foreground">Edge</h1>
           </div>
         </NavLink>
       </SidebarHeader>

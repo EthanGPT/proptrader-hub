@@ -23,6 +23,7 @@ import {
   ArrowDownRight,
   Star,
   CrosshairIcon,
+  Camera,
 } from "lucide-react";
 import { useData } from "@/context/DataContext";
 import { DailyEntry, Trade, INSTRUMENTS } from "@/types";
@@ -44,6 +45,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { DailySnapshot } from "@/components/DailySnapshot";
 
 const Calendar = () => {
   const {
@@ -83,6 +85,7 @@ const Calendar = () => {
   const [isEntryDialogOpen, setIsEntryDialogOpen] = useState(false);
   const [isTradeDialogOpen, setIsTradeDialogOpen] = useState(false);
   const [editingTrade, setEditingTrade] = useState<Trade | null>(null);
+  const [isSnapshotOpen, setIsSnapshotOpen] = useState(false);
 
   // Build a lookup map for daily entries
   const entryMap = useMemo(() => {
@@ -178,11 +181,22 @@ const Calendar = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="page-title">Calendar</h1>
-        <p className="page-subtitle">
-          Track your daily P&L, trades, and journal notes
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="page-title">Calendar</h1>
+          <p className="page-subtitle">
+            Track your daily P&L, trades, and journal notes
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setIsSnapshotOpen(true)}
+          className="gap-2"
+        >
+          <Camera className="h-4 w-4" />
+          Daily Snapshot
+        </Button>
       </div>
 
       {/* Monthly stats */}
@@ -651,6 +665,16 @@ const Calendar = () => {
               }}
             />
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Daily Snapshot Dialog */}
+      <Dialog open={isSnapshotOpen} onOpenChange={setIsSnapshotOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Daily Snapshot</DialogTitle>
+          </DialogHeader>
+          <DailySnapshot onClose={() => setIsSnapshotOpen(false)} />
         </DialogContent>
       </Dialog>
     </div>
