@@ -76,7 +76,7 @@ Order Executed (2 MNQ contracts)
 | 5 | 4 | $11,200 |
 | 6 | 5 | $14,000 |
 
-Reinvest 50% of profits into new eval accounts.
+Reinvest 75% of profits into new eval accounts.
 
 ---
 

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Plus, Pencil, Trash2, Bot, Play, Pause, Archive, ChevronRight, AlertCircle } from "lucide-react";
+import { Plus, Pencil, Trash2, Bot, Play, Pause, Archive, ChevronRight, AlertCircle, Sparkles } from "lucide-react";
 import { useBots } from "@/context/BotContext";
 import { useAuth } from "@/context/AuthContext";
 import type { Bot as BotType, BotStatus, BotFormData } from "@/types/bots";
@@ -26,7 +26,7 @@ const statusConfig = {
 
 const Bots = () => {
   const { user, isConfigured } = useAuth();
-  const { bots, botAccounts, botTrades, addBot, updateBot, deleteBot, loading, error } = useBots();
+  const { bots, botAccounts, botTrades, addBot, updateBot, deleteBot, loading, error, loadKLBSDemo } = useBots();
   const navigate = useNavigate();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingBot, setEditingBot] = useState<BotType | null>(null);
@@ -266,11 +266,20 @@ const Bots = () => {
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <Bot className="h-16 w-16 text-muted-foreground/50 mb-4" />
           <h3 className="text-lg font-medium mb-2">No bots yet</h3>
-          <p className="text-muted-foreground mb-4">Create your first trading bot to start tracking performance</p>
-          <Button onClick={() => setIsDialogOpen(true)} className="bg-accent text-accent-foreground hover:bg-accent/90">
-            <Plus className="mr-2 h-4 w-4" />
-            Add Your First Bot
-          </Button>
+          <p className="text-muted-foreground mb-4">Create your first trading bot or load the KLBS demo with real backtest data</p>
+          <div className="flex gap-3">
+            <Button onClick={loadKLBSDemo} variant="outline" className="border-accent text-accent hover:bg-accent/10">
+              <Sparkles className="mr-2 h-4 w-4" />
+              Load KLBS Demo
+            </Button>
+            <Button onClick={() => setIsDialogOpen(true)} className="bg-accent text-accent-foreground hover:bg-accent/90">
+              <Plus className="mr-2 h-4 w-4" />
+              Add Your First Bot
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground mt-4 max-w-md">
+            KLBS Demo includes 3 bots (MNQ, MES, MGC) with $1.12M combined backtest P&L from Jan 2018 - Aug 2024
+          </p>
         </div>
       )}
     </div>

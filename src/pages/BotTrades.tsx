@@ -9,7 +9,10 @@ import {
   ArrowDownRight,
   Download,
   Upload,
+  Bot,
+  Sparkles,
 } from "lucide-react";
+import { Link } from "react-router-dom";
 import { useBots } from "@/context/BotContext";
 import { useAuth } from "@/context/AuthContext";
 import type { BotTrade, BotTradeFormData } from "@/types/bots";
@@ -55,6 +58,7 @@ const BotTrades = () => {
     updateBotTrade,
     deleteBotTrade,
     loading,
+    loadKLBSDemo,
   } = useBots();
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -166,6 +170,31 @@ const BotTrades = () => {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent" />
+      </div>
+    );
+  }
+
+  // Show empty state if no bots exist
+  if (bots.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-center">
+        <Bot className="h-16 w-16 text-muted-foreground/30 mb-4" />
+        <h2 className="text-xl font-semibold mb-2">No Bots Configured</h2>
+        <p className="text-muted-foreground mb-6 max-w-md">
+          You need to create a bot before you can track trades. Load the KLBS demo or create your first bot.
+        </p>
+        <div className="flex gap-3">
+          <Button onClick={loadKLBSDemo} variant="outline" className="border-accent text-accent hover:bg-accent/10">
+            <Sparkles className="mr-2 h-4 w-4" />
+            Load KLBS Demo
+          </Button>
+          <Link to="/bots">
+            <Button className="bg-accent text-accent-foreground hover:bg-accent/90">
+              <Plus className="mr-2 h-4 w-4" />
+              Go to Bots
+            </Button>
+          </Link>
+        </div>
       </div>
     );
   }

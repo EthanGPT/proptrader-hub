@@ -38,9 +38,14 @@ import {
   ArrowDownRight,
   Calendar,
   History,
+  Bot,
+  Sparkles,
+  Plus,
 } from "lucide-react";
+import { Link } from "react-router-dom";
 import { useBots } from "@/context/BotContext";
 import { useAuth } from "@/context/AuthContext";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -67,7 +72,7 @@ const PIE_COLORS = ["#10b981", "#ef4444", "#6b7280", "#3b82f6", "#f59e0b", "#8b5
 
 export default function BotAnalytics() {
   const { user, isConfigured } = useAuth();
-  const { bots, botTrades, backtestData, loading } = useBots();
+  const { bots, botTrades, backtestData, loading, loadKLBSDemo } = useBots();
   const [searchParams] = useSearchParams();
   const botIdParam = searchParams.get("bot");
 
@@ -370,12 +375,42 @@ export default function BotAnalytics() {
     );
   }
 
+  // Show empty state if no bots exist
+  if (bots.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-center">
+        <Bot className="h-16 w-16 text-muted-foreground/30 mb-4" />
+        <h2 className="text-xl font-semibold mb-2">No Bots Configured</h2>
+        <p className="text-muted-foreground mb-6 max-w-md">
+          You need to create a bot before you can view analytics. Load the KLBS demo to see backtest comparisons.
+        </p>
+        <div className="flex gap-3">
+          <Button onClick={loadKLBSDemo} variant="outline" className="border-accent text-accent hover:bg-accent/10">
+            <Sparkles className="mr-2 h-4 w-4" />
+            Load KLBS Demo
+          </Button>
+          <Link to="/bots">
+            <Button className="bg-accent text-accent-foreground hover:bg-accent/90">
+              <Plus className="mr-2 h-4 w-4" />
+              Go to Bots
+            </Button>
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   if (botTrades.filter(t => t.status === 'closed').length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-20">
         <BarChart3 className="h-16 w-16 text-muted-foreground/30 mb-4" />
-        <h2 className="text-xl font-semibold mb-2">No Trade Data</h2>
-        <p className="text-muted-foreground">Start logging bot trades to see analytics</p>
+        <h2 className="text-xl font-semibold mb-2">No Trade Data Yet</h2>
+        <p className="text-muted-foreground mb-2">Start logging bot trades to see analytics</p>
+        <p className="text-sm text-muted-foreground">
+          {backtestData.length > 0
+            ? `${backtestData.length} backtest period(s) loaded - add live trades to compare!`
+            : "Load KLBS demo to see backtest benchmark data."}
+        </p>
       </div>
     );
   }
