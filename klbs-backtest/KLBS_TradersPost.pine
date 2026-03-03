@@ -1,0 +1,387 @@
+//@version=6
+indicator("Key Level Breakout System", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=300)
+
+var string G0 = "── Instrument Preset ─────────────────"
+presetMode = input.string("Auto", "Preset Mode", options=["Auto", "MNQ", "M2K", "MES", "MGC", "Manual"], group=G0)
+
+_ticker     = str.upper(syminfo.ticker)
+_autoPreset = str.contains(_ticker, "MNQ") ? "MNQ" : str.contains(_ticker, "M2K") ? "M2K" : str.contains(_ticker, "MES") ? "MES" : str.contains(_ticker, "MGC") ? "MGC" : "Manual"
+_preset     = presetMode == "Auto" ? _autoPreset : presetMode
+
+_presetTP = _preset == "MNQ" ? 35.0 : _preset == "M2K" ? 10.0 : _preset == "MES" ? 25.0 : _preset == "MGC" ? 20.0 : 35.0
+_presetSL = _preset == "MNQ" ? 50.0 : _preset == "M2K" ? 10.0 : _preset == "MES" ? 25.0 : _preset == "MGC" ? 25.0 : 50.0
+_presetPV = _preset == "MNQ" ?  2.0 : _preset == "M2K" ?  5.0 : _preset == "MES" ?  5.0 : _preset == "MGC" ? 10.0 :  2.0
+_presetRZ = _preset == "M2K" ?  2.0 : _preset == "MGC" ?  3.0 : 5.0
+
+var string G1 = "── Manual Risk (only used in Manual mode) ──"
+manualTP  = input.float(35.0, "Take Profit (pts)", minval=1.0, step=1.0, group=G1)
+manualSL  = input.float(50.0, "Stop Loss (pts)",   minval=1.0, step=1.0, group=G1)
+manualRZ  = input.float(5.0,  "Retest Zone (pts)", minval=0.5, step=0.5, group=G1)
+manualPV  = input.float(2.0,  "Point Value ($)",   minval=0.1, step=0.5, group=G1)
+contracts = input.int(1,      "Contracts",         minval=1,   step=1,   group=G1)
+
+tpPts      = _preset == "Manual" ? manualTP : _presetTP
+slPts      = _preset == "Manual" ? manualSL : _presetSL
+retestPts  = _preset == "Manual" ? manualRZ : _presetRZ
+pointValue = _preset == "Manual" ? manualPV : _presetPV
+trailPts   = 5.0
+
+var string G_SESS = "── Session & Levels ──────────────────"
+tz         = input.string("America/New_York", "Timezone", group=G_SESS)
+proxThresh = input.float(10.0, "Proximity Filter (pts)", minval=0.5, step=0.5, group=G_SESS)
+_proxActive = _preset == "M2K" ? math.min(proxThresh, 4.0) : proxThresh
+
+var string G2 = "── Visuals ───────────────────────────"
+showDash = input.bool(true,     "Show Dashboard",           group=G2)
+showSess = input.bool(true,     "Highlight Sessions",       group=G2)
+colLong  = input.color(#00c853, "Long Colour",              group=G2)
+colShort = input.color(#ef5350, "Short Colour",             group=G2)
+colLPM   = input.color(#1565C0, "London Pre-Market Colour", group=G2)
+
+dollarRisk   = slPts * pointValue * contracts
+dollarProfit = tpPts * pointValue * contracts
+
+inLPM      = not na(time(timeframe.period, "0000-0300", tz))
+inPM       = not na(time(timeframe.period, "0430-0930", tz))
+inLondon   = not na(time(timeframe.period, "0300-0800", tz))
+inNY       = not na(time(timeframe.period, "0930-1600", tz))
+anySession = inLondon or inNY
+inDead     = not na(time(timeframe.period, "0800-0930", tz))
+
+bgcolor(showSess ? (inLondon ? color.new(#1565C0, 96) : inNY ? color.new(#e65100, 96) : inPM ? color.new(#4a148c, 96) : na) : na)
+
+curDay        = dayofweek(time, tz)
+var int prevDay = na
+bool isNewDay   = not na(prevDay) and curDay != prevDay
+prevDay        := curDay
+
+var float dayHigh  = na, var float dayLow   = na
+var float pmHigh   = na, var float pmLow    = na
+var float lpmHigh  = na, var float lpmLow   = na
+var float prevDayH = na, var float prevDayL = na
+
+var line  linePDH  = na, var line  linePDL  = na
+var line  linePMH  = na, var line  linePML  = na
+var line  lineLPMH = na, var line  lineLPML = na
+var label lblPDH   = na, var label lblPDL   = na
+var label lblPMH   = na, var label lblPML   = na
+var label lblLPMH  = na, var label lblLPML  = na
+
+var int stPDH  = 0, var int stPDL  = 0
+var int stPMH  = 0, var int stPML  = 0
+var int stLPMH = 0, var int stLPML = 0
+
+var int boPDH  = 0, var int boPDL  = 0
+var int boPMH  = 0, var int boPML  = 0
+var int boLPMH = 0, var int boLPML = 0
+
+var int lsPDH  = -1, var int lsPDL  = -1
+var int lsPMH  = -1, var int lsPML  = -1
+var int lsLPMH = -1, var int lsLPML = -1
+
+var int longCount  = 0
+var int shortCount = 0
+
+// ── Armed state lines (small horizontal marker when level arms) ──
+var line armLinePDH  = na, var line armLinePDL  = na
+var line armLinePMH  = na, var line armLinePML  = na
+var line armLineLPMH = na, var line armLineLPML = na
+
+f_near(a, b) =>
+    not na(a) and not na(b) and math.abs(a - b) <= _proxActive
+
+f_drawLevel(ln, lbl, lvl, col, wid, sty, txt) =>
+    var line  _ln  = na
+    var label _lbl = na
+    _ln  := ln
+    _lbl := lbl
+    if na(_ln)
+        _ln  := line.new(bar_index, lvl, bar_index + 1, lvl, color=col, width=wid, style=sty, extend=extend.right)
+        _lbl := label.new(bar_index + 2, lvl, txt, style=label.style_label_left, textcolor=col, color=color.new(color.white, 100), size=size.small)
+    else
+        line.set_y1(_ln, lvl)
+        line.set_y2(_ln, lvl)
+        if barstate.islast
+            label.set_xy(_lbl, bar_index + 2, lvl)
+    [_ln, _lbl]
+
+// ── Draw armed marker: small 4-bar line at level price ──
+f_drawArmedLine(lvl, isLong) =>
+    col = isLong ? color.new(colLong, 30) : color.new(colShort, 30)
+    line.new(bar_index, lvl, bar_index + 4, lvl,
+             color=col, width=2, style=line.style_solid)
+
+// ── Signal box with trail markers ──
+f_signal(lvl, isLong, lvlName) =>
+    tp       = isLong ? lvl + tpPts  : lvl - tpPts
+    sl       = isLong ? lvl - slPts  : lvl + slPts
+    trail1   = isLong ? tp + trailPts : tp - trailPts
+    lbY      = isLong ? lvl - slPts * 0.45 : lvl + slPts * 0.45
+
+    box.new(bar_index, isLong ? tp : lvl, bar_index + 6, isLong ? lvl : tp,
+            border_color=color.new(colLong, 40), border_width=1,
+            bgcolor=color.new(colLong, 84))
+    box.new(bar_index, isLong ? lvl : sl, bar_index + 6, isLong ? sl : lvl,
+            border_color=color.new(colShort, 40), border_width=1,
+            bgcolor=color.new(colShort, 84))
+    line.new(bar_index, lvl, bar_index + 6, lvl,
+             color=color.new(color.white, 30), width=1, style=line.style_solid)
+    line.new(bar_index, trail1, bar_index + 6, trail1,
+             color=color.new(isLong ? colLong : colShort, 20),
+             width=1, style=line.style_dotted)
+    label.new(bar_index, lbY,
+              (isLong ? "▲  " : "▼  ") + lvlName,
+              style=isLong ? label.style_label_up : label.style_label_down,
+              color=isLong ? color.new(colLong, 10) : color.new(colShort, 10),
+              textcolor=color.white, size=size.normal)
+    label.new(bar_index + 7, tp,
+              "Trail " + str.tostring(trailPts) + "pts @ TP",
+              style=label.style_label_right,
+              textcolor=isLong ? colLong : colShort,
+              color=color.new(color.white, 100), size=size.tiny)
+    label.new(bar_index + 7, trail1,
+              "+5 lock",
+              style=label.style_label_right,
+              textcolor=color.new(isLong ? colLong : colShort, 40),
+              color=color.new(color.white, 100), size=size.tiny)
+    label.new(bar_index + 7, sl,
+              "SL  −" + str.tostring(slPts) + "pts",
+              style=label.style_label_right,
+              textcolor=colShort,
+              color=color.new(color.white, 100), size=size.tiny)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// TRADERSPOST WEBHOOK ALERT FUNCTION
+// ══════════════════════════════════════════════════════════════════════════════
+f_sendAlert(isLong, lvlName, lvlPrice) =>
+    // Get the base ticker (MNQ, MES, MGC, etc.)
+    baseTicker = str.contains(_ticker, "MNQ") ? "MNQ" :
+                 str.contains(_ticker, "MES") ? "MES" :
+                 str.contains(_ticker, "MGC") ? "MGC" :
+                 str.contains(_ticker, "M2K") ? "M2K" : _ticker
+
+    action = isLong ? "buy" : "sell"
+
+    // TradersPost JSON format with limit price at level
+    alertMsg = '{"ticker": "' + baseTicker + '", "action": "' + action + '", "price": ' + str.tostring(lvlPrice) + '}'
+
+    // Fire alert with JSON payload - use alert.freq_once_per_bar to prevent duplicates
+    alert(alertMsg, alert.freq_once_per_bar)
+
+// ── Core state machine — NO direction lock ──
+f_check(show, lvl, st, bo, ls, isLong, lvlName) =>
+    _st = st, _bo = bo, _ls = ls, _fired = false, _justArmed = false
+    if show and not na(lvl)
+        if isLong
+            if _st == 0 and anySession and low[1] > lvl
+                _st := 1, _bo := bar_index, _justArmed := true
+            if _st == 1 and bar_index > _bo
+                if low <= lvl + retestPts
+                    if anySession
+                        if bar_index != _ls
+                            _fired := true, _ls := bar_index, _st := 2
+                            // SEND WEBHOOK ALERT
+                            f_sendAlert(true, lvlName, lvl)
+                    else
+                        _st := 0
+        else
+            if _st == 0 and anySession and high[1] < lvl
+                _st := -1, _bo := bar_index, _justArmed := true
+            if _st == -1 and bar_index > _bo
+                if high >= lvl - retestPts
+                    if anySession
+                        if bar_index != _ls
+                            _fired := true, _ls := bar_index, _st := -2
+                            // SEND WEBHOOK ALERT
+                            f_sendAlert(false, lvlName, lvl)
+                    else
+                        _st := 0
+    [_st, _bo, _ls, _fired, _justArmed]
+
+// ── New day: full reset ───────────────────────────────────────────
+if isNewDay
+    prevDayH := dayHigh, prevDayL := dayLow
+    dayHigh  := high,    dayLow   := low
+    line.delete(linePDH),  line.delete(linePDL)
+    line.delete(linePMH),  line.delete(linePML)
+    line.delete(lineLPMH), line.delete(lineLPML)
+    label.delete(lblPDH),  label.delete(lblPDL)
+    label.delete(lblPMH),  label.delete(lblPML)
+    label.delete(lblLPMH), label.delete(lblLPML)
+    linePDH  := na, linePDL  := na, linePMH  := na
+    linePML  := na, lineLPMH := na, lineLPML := na
+    lblPDH   := na, lblPDL   := na, lblPMH   := na
+    lblPML   := na, lblLPMH  := na, lblLPML  := na
+    pmHigh   := na, pmLow    := na, lpmHigh  := na, lpmLow  := na
+    stPDH    := 0,  stPDL    := 0,  stPMH    := 0
+    stPML    := 0,  stLPMH   := 0,  stLPML   := 0
+    lsPDH    := -1, lsPDL    := -1, lsPMH    := -1
+    lsPML    := -1, lsLPMH   := -1, lsLPML   := -1
+    longCount := 0, shortCount := 0
+
+if not isNewDay
+    dayHigh := math.max(nz(dayHigh, high), high)
+    dayLow  := math.min(nz(dayLow,  low),  low)
+if inLPM
+    lpmHigh := na(lpmHigh) ? high : math.max(lpmHigh, high)
+    lpmLow  := na(lpmLow)  ? low  : math.min(lpmLow,  low)
+if inPM
+    pmHigh := na(pmHigh) ? high : math.max(pmHigh, high)
+    pmLow  := na(pmLow)  ? low  : math.min(pmLow,  low)
+
+showPDH  = not na(prevDayH) and not f_near(prevDayH, lpmHigh) and not f_near(prevDayH, lpmLow) and not f_near(prevDayH, pmHigh) and not f_near(prevDayH, pmLow)
+showPDL  = not na(prevDayL) and not f_near(prevDayL, lpmHigh) and not f_near(prevDayL, lpmLow) and not f_near(prevDayL, pmHigh) and not f_near(prevDayL, pmLow)
+showLPMH = not na(lpmHigh)  and not f_near(lpmHigh, pmHigh) and not f_near(lpmHigh, pmLow)
+showLPML = not na(lpmLow)   and not f_near(lpmLow,  pmHigh) and not f_near(lpmLow,  pmLow)
+showPMH  = not na(pmHigh)
+showPML  = not na(pmLow)
+
+if showPDH
+    [l, b] = f_drawLevel(linePDH, lblPDH, prevDayH, color.black, 2, line.style_dashed, "PDH")
+    linePDH := l, lblPDH := b
+else
+    line.delete(linePDH), label.delete(lblPDH), linePDH := na, lblPDH := na
+
+if showPDL
+    [l, b] = f_drawLevel(linePDL, lblPDL, prevDayL, color.black, 2, line.style_dashed, "PDL")
+    linePDL := l, lblPDL := b
+else
+    line.delete(linePDL), label.delete(lblPDL), linePDL := na, lblPDL := na
+
+if showLPMH
+    [l, b] = f_drawLevel(lineLPMH, lblLPMH, lpmHigh, colLPM, 1, line.style_dotted, "LPH")
+    lineLPMH := l, lblLPMH := b
+else
+    line.delete(lineLPMH), label.delete(lblLPMH), lineLPMH := na, lblLPMH := na
+
+if showLPML
+    [l, b] = f_drawLevel(lineLPML, lblLPML, lpmLow, colLPM, 1, line.style_dotted, "LPL")
+    lineLPML := l, lblLPML := b
+else
+    line.delete(lineLPML), label.delete(lblLPML), lineLPML := na, lblLPML := na
+
+if showPMH
+    [l, b] = f_drawLevel(linePMH, lblPMH, pmHigh, color.black, 1, line.style_dotted, "PMH")
+    linePMH := l, lblPMH := b
+else
+    line.delete(linePMH), label.delete(lblPMH), linePMH := na, lblPMH := na
+
+if showPML
+    [l, b] = f_drawLevel(linePML, lblPML, pmLow, color.black, 1, line.style_dotted, "PML")
+    linePML := l, lblPML := b
+else
+    line.delete(linePML), label.delete(lblPML), linePML := na, lblPML := na
+
+is15m = timeframe.period == "15"
+
+if is15m
+    // NOTE: Added lvlName parameter to f_check for webhook alerts
+    [s1,b1,l1,f1,a1] = f_check(showPDH,  prevDayH, stPDH,  boPDH,  lsPDH,  true,  "PDH")
+    stPDH := s1, boPDH := b1, lsPDH := l1
+    if a1
+        armLinePDH := f_drawArmedLine(prevDayH, true)
+    if f1
+        f_signal(prevDayH, true, "PDH"), longCount += 1
+        line.delete(armLinePDH)
+
+    [s2,b2,l2,f2,a2] = f_check(showPDL,  prevDayL, stPDL,  boPDL,  lsPDL,  false, "PDL")
+    stPDL := s2, boPDL := b2, lsPDL := l2
+    if a2
+        armLinePDL := f_drawArmedLine(prevDayL, false)
+    if f2
+        f_signal(prevDayL, false, "PDL"), shortCount += 1
+        line.delete(armLinePDL)
+
+    [s3,b3,l3,f3,a3] = f_check(showLPMH, lpmHigh,  stLPMH, boLPMH, lsLPMH, true,  "LPH")
+    stLPMH := s3, boLPMH := b3, lsLPMH := l3
+    if a3
+        armLineLPMH := f_drawArmedLine(lpmHigh, true)
+    if f3
+        f_signal(lpmHigh, true, "LPH"), longCount += 1
+        line.delete(armLineLPMH)
+
+    [s4,b4,l4,f4,a4] = f_check(showLPML, lpmLow,   stLPML, boLPML, lsLPML, false, "LPL")
+    stLPML := s4, boLPML := b4, lsLPML := l4
+    if a4
+        armLineLPML := f_drawArmedLine(lpmLow, false)
+    if f4
+        f_signal(lpmLow, false, "LPL"), shortCount += 1
+        line.delete(armLineLPML)
+
+    [s5,b5,l5,f5,a5] = f_check(showPMH,  pmHigh,   stPMH,  boPMH,  lsPMH,  true,  "PMH")
+    stPMH := s5, boPMH := b5, lsPMH := l5
+    if a5
+        armLinePMH := f_drawArmedLine(pmHigh, true)
+    if f5
+        f_signal(pmHigh, true, "PMH"), longCount += 1
+        line.delete(armLinePMH)
+
+    [s6,b6,l6,f6,a6] = f_check(showPML,  pmLow,    stPML,  boPML,  lsPML,  false, "PML")
+    stPML := s6, boPML := b6, lsPML := l6
+    if a6
+        armLinePML := f_drawArmedLine(pmLow, false)
+    if f6
+        f_signal(pmLow, false, "PML"), shortCount += 1
+        line.delete(armLinePML)
+
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+var table dash = na
+
+if showDash and barstate.islast
+    if na(dash)
+        dash := table.new(position.top_right, 2, 9, bgcolor=color.black,
+                          border_color=color.new(color.white, 75), border_width=1,
+                          frame_color=color.new(color.white, 75), frame_width=1)
+
+    table.cell(dash, 0, 0, "THE EDGE", bgcolor=color.black, text_color=color.white,
+               text_size=size.small, text_halign=text.align_left, width=12)
+    table.cell(dash, 1, 0, _preset, bgcolor=color.black,
+               text_color=color.new(color.white, 55), text_size=size.small,
+               text_halign=text.align_right, width=8)
+
+    table.cell(dash, 0, 1, "", bgcolor=color.new(color.white, 75), height=1)
+    table.cell(dash, 1, 1, "", bgcolor=color.new(color.white, 75), height=1)
+
+    table.cell(dash, 0, 2, "  Stop Loss", bgcolor=color.black,
+               text_color=color.new(color.white, 55), text_size=size.small,
+               text_halign=text.align_left)
+    table.cell(dash, 1, 2, "−" + str.tostring(slPts) + " pts", bgcolor=color.black,
+               text_color=color.white, text_size=size.small, text_halign=text.align_right)
+
+    table.cell(dash, 0, 3, "  Take Profit", bgcolor=color.black,
+               text_color=color.new(color.white, 55), text_size=size.small,
+               text_halign=text.align_left)
+    table.cell(dash, 1, 3, "+" + str.tostring(tpPts) + " pts", bgcolor=color.black,
+               text_color=color.white, text_size=size.small, text_halign=text.align_right)
+
+    table.cell(dash, 0, 4, "  Trail", bgcolor=color.black,
+               text_color=color.new(color.white, 55), text_size=size.small,
+               text_halign=text.align_left)
+    table.cell(dash, 1, 4, str.tostring(trailPts) + " pts @ TP", bgcolor=color.black,
+               text_color=color.white, text_size=size.small, text_halign=text.align_right)
+
+    table.cell(dash, 0, 5, "", bgcolor=color.new(color.white, 85), height=1)
+    table.cell(dash, 1, 5, "", bgcolor=color.new(color.white, 85), height=1)
+
+    table.cell(dash, 0, 6, "  Risk", bgcolor=color.black,
+               text_color=color.new(color.white, 55), text_size=size.small,
+               text_halign=text.align_left)
+    table.cell(dash, 1, 6, "$" + str.tostring(dollarRisk), bgcolor=color.black,
+               text_color=color.white, text_size=size.small, text_halign=text.align_right)
+
+    table.cell(dash, 0, 7, "  Target", bgcolor=color.black,
+               text_color=color.new(color.white, 55), text_size=size.small,
+               text_halign=text.align_left)
+    table.cell(dash, 1, 7, "$" + str.tostring(dollarProfit), bgcolor=color.black,
+               text_color=color.white, text_size=size.small, text_halign=text.align_right)
+
+    table.cell(dash, 0, 8, "  " + syminfo.ticker, bgcolor=color.black,
+               text_color=color.new(color.white, 75), text_size=size.tiny,
+               text_halign=text.align_left)
+    table.cell(dash, 1, 8, "$" + str.tostring(pointValue) + " × " + str.tostring(contracts) + "ct",
+               bgcolor=color.black, text_color=color.new(color.white, 75),
+               text_size=size.tiny, text_halign=text.align_right)
+
+if barstate.islast and not is15m
+    label.new(bar_index, high, "⚠  Switch to 15-min for signals",
+              style=label.style_label_left, color=color.red, textcolor=color.white, size=size.normal)
