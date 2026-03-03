@@ -29,7 +29,7 @@ export default function Backtest() {
           </div>
           <div className="flex items-center gap-3">
             <a
-              href="/klbs_oos_report.html"
+              href={`${import.meta.env.BASE_URL}klbs_oos_report.html`}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-2 border border-[#888]/50 text-[#888] font-mono text-[10px] uppercase tracking-wider px-4 py-2 hover:bg-[#888]/10 transition-colors"
@@ -37,7 +37,7 @@ export default function Backtest() {
               Stability Analysis <ExternalLink className="h-3 w-3" />
             </a>
             <a
-              href="/klbs_backtest_report.html"
+              href={`${import.meta.env.BASE_URL}klbs_backtest_report.html`}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-2 border border-[#c8f54a]/50 text-[#c8f54a] font-mono text-[10px] uppercase tracking-wider px-4 py-2 hover:bg-[#c8f54a]/10 transition-colors"

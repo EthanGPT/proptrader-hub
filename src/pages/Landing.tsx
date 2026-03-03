@@ -529,7 +529,7 @@ function MethodologySection() {
         {/* Reports Link */}
         <div className="mt-12 flex flex-wrap gap-4">
           <a
-            href="/klbs_backtest_report.html"
+            href={`${import.meta.env.BASE_URL}klbs_backtest_report.html`}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-block border border-[#c8f54a]/50 text-[#c8f54a] font-mono text-[10px] font-medium uppercase tracking-[0.12em] px-6 py-3 transition-all hover:bg-[#c8f54a]/10"
@@ -537,7 +537,7 @@ function MethodologySection() {
             Full Interactive Report
           </a>
           <a
-            href="/klbs_oos_report.html"
+            href={`${import.meta.env.BASE_URL}klbs_oos_report.html`}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-block border border-[#888]/50 text-[#888] font-mono text-[10px] font-medium uppercase tracking-[0.12em] px-6 py-3 transition-all hover:bg-[#888]/10"
