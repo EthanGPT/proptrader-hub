@@ -71,9 +71,9 @@ var int stPDH  = 0, var int stPDL  = 0
 var int stPMH  = 0, var int stPML  = 0
 var int stLPMH = 0, var int stLPML = 0
 
-var int boPDH  = 0, var int boPDL  = 0
-var int boPMH  = 0, var int boPML  = 0
-var int boLPMH = 0, var int boLPML = 0
+var int boPDH  = -1, var int boPDL  = -1
+var int boPMH  = -1, var int boPML  = -1
+var int boLPMH = -1, var int boLPML = -1
 
 var int lsPDH  = -1, var int lsPDL  = -1
 var int lsPMH  = -1, var int lsPML  = -1
@@ -162,40 +162,71 @@ f_sendAlert(isLong, lvlName, lvlPrice) =>
 
     action = isLong ? "buy" : "sell"
 
-    // TradersPost JSON format with limit price at level
-    alertMsg = '{"ticker": "' + baseTicker + '", "action": "' + action + '", "price": ' + str.tostring(lvlPrice) + '}'
+    // TradersPost JSON format - matching their expected schema
+    alertMsg = '{"ticker": "' + baseTicker + '", "action": "' + action + '", "price": "' + str.tostring(lvlPrice) + '", "time": "' + str.format_time(timenow, "yyyy-MM-dd'T'HH:mm:ssZ", tz) + '", "interval": "' + timeframe.period + '"}'
 
     // Fire alert with JSON payload - use alert.freq_once_per_bar to prevent duplicates
     alert(alertMsg, alert.freq_once_per_bar)
 
-// ── Core state machine — NO direction lock ──
+// ══════════════════════════════════════════════════════════════════════════════
+// CORE STATE MACHINE - MATCHES PYTHON BACKTEST ($1.12M PROFIT)
+// ══════════════════════════════════════════════════════════════════════════════
+// LOWS (PDL, PML, LPL): isLong=true
+//   Arm: previous bar LOW > level (full bar above)
+//   Fire: current bar LOW <= level + retest zone
+//
+// HIGHS (PDH, PMH, LPH): isLong=false
+//   Arm: previous bar HIGH < level (full bar below)
+//   Fire: current bar HIGH >= level - retest zone
+// ══════════════════════════════════════════════════════════════════════════════
+
 f_check(show, lvl, st, bo, ls, isLong, lvlName) =>
     _st = st, _bo = bo, _ls = ls, _fired = false, _justArmed = false
+
     if show and not na(lvl)
+
         if isLong
-            if _st == 0 and anySession and low[1] > lvl
-                _st := 1, _bo := bar_index, _justArmed := true
+            // ══ LONG (PDL, PML, LPL) ══
+            // Arm: pl > lvl (previous bar's low > level)
+            if _st == 0 and anySession and not inDead
+                if low[1] > lvl
+                    _st := 1
+                    _bo := bar_index
+                    _justArmed := true
+
+            // Fire: l <= lvl + rz (current low touches zone)
             if _st == 1 and bar_index > _bo
                 if low <= lvl + retestPts
-                    if anySession
+                    if anySession and not inDead
                         if bar_index != _ls
-                            _fired := true, _ls := bar_index, _st := 2
-                            // SEND WEBHOOK ALERT
+                            _fired := true
+                            _ls := bar_index
+                            _st := 2
                             f_sendAlert(true, lvlName, lvl)
                     else
-                        _st := 0
+                        _st := 0  // Dead zone disarm
+
         else
-            if _st == 0 and anySession and high[1] < lvl
-                _st := -1, _bo := bar_index, _justArmed := true
+            // ══ SHORT (PDH, PMH, LPH) ══
+            // Arm: ph < lvl (previous bar's high < level)
+            if _st == 0 and anySession and not inDead
+                if high[1] < lvl
+                    _st := -1
+                    _bo := bar_index
+                    _justArmed := true
+
+            // Fire: h >= lvl - rz (current high touches zone)
             if _st == -1 and bar_index > _bo
                 if high >= lvl - retestPts
-                    if anySession
+                    if anySession and not inDead
                         if bar_index != _ls
-                            _fired := true, _ls := bar_index, _st := -2
-                            // SEND WEBHOOK ALERT
+                            _fired := true
+                            _ls := bar_index
+                            _st := -2
                             f_sendAlert(false, lvlName, lvl)
                     else
-                        _st := 0
+                        _st := 0  // Dead zone disarm
+
     [_st, _bo, _ls, _fired, _justArmed]
 
 // ── New day: full reset ───────────────────────────────────────────
@@ -215,6 +246,8 @@ if isNewDay
     pmHigh   := na, pmLow    := na, lpmHigh  := na, lpmLow  := na
     stPDH    := 0,  stPDL    := 0,  stPMH    := 0
     stPML    := 0,  stLPMH   := 0,  stLPML   := 0
+    boPDH    := -1, boPDL    := -1, boPMH    := -1
+    boPML    := -1, boLPMH   := -1, boLPML   := -1
     lsPDH    := -1, lsPDL    := -1, lsPMH    := -1
     lsPML    := -1, lsLPMH   := -1, lsLPML   := -1
     longCount := 0, shortCount := 0
@@ -275,53 +308,70 @@ else
 is15m = timeframe.period == "15"
 
 if is15m
-    // NOTE: Added lvlName parameter to f_check for webhook alerts
-    [s1,b1,l1,f1,a1] = f_check(showPDH,  prevDayH, stPDH,  boPDH,  lsPDH,  true,  "PDH")
+    // ══════════════════════════════════════════════════════════════════════════
+    // MATCHES PYTHON BACKTEST ($1.12M PROFIT)
+    // HIGHS (PDH, PMH, LPH) = SHORT (isLong=false)
+    // LOWS  (PDL, PML, LPL) = LONG  (isLong=true)
+    // ══════════════════════════════════════════════════════════════════════════
+
+    // PDH - SHORT
+    [s1,b1,l1,f1,a1] = f_check(showPDH, prevDayH, stPDH, boPDH, lsPDH, false, "PDH")
     stPDH := s1, boPDH := b1, lsPDH := l1
     if a1
-        armLinePDH := f_drawArmedLine(prevDayH, true)
+        armLinePDH := f_drawArmedLine(prevDayH, false)
     if f1
-        f_signal(prevDayH, true, "PDH"), longCount += 1
+        f_signal(prevDayH, false, "PDH")
+        shortCount += 1
         line.delete(armLinePDH)
 
-    [s2,b2,l2,f2,a2] = f_check(showPDL,  prevDayL, stPDL,  boPDL,  lsPDL,  false, "PDL")
+    // PDL - LONG
+    [s2,b2,l2,f2,a2] = f_check(showPDL, prevDayL, stPDL, boPDL, lsPDL, true, "PDL")
     stPDL := s2, boPDL := b2, lsPDL := l2
     if a2
-        armLinePDL := f_drawArmedLine(prevDayL, false)
+        armLinePDL := f_drawArmedLine(prevDayL, true)
     if f2
-        f_signal(prevDayL, false, "PDL"), shortCount += 1
+        f_signal(prevDayL, true, "PDL")
+        longCount += 1
         line.delete(armLinePDL)
 
-    [s3,b3,l3,f3,a3] = f_check(showLPMH, lpmHigh,  stLPMH, boLPMH, lsLPMH, true,  "LPH")
+    // LPH - SHORT
+    [s3,b3,l3,f3,a3] = f_check(showLPMH, lpmHigh, stLPMH, boLPMH, lsLPMH, false, "LPH")
     stLPMH := s3, boLPMH := b3, lsLPMH := l3
     if a3
-        armLineLPMH := f_drawArmedLine(lpmHigh, true)
+        armLineLPMH := f_drawArmedLine(lpmHigh, false)
     if f3
-        f_signal(lpmHigh, true, "LPH"), longCount += 1
+        f_signal(lpmHigh, false, "LPH")
+        shortCount += 1
         line.delete(armLineLPMH)
 
-    [s4,b4,l4,f4,a4] = f_check(showLPML, lpmLow,   stLPML, boLPML, lsLPML, false, "LPL")
+    // LPL - LONG
+    [s4,b4,l4,f4,a4] = f_check(showLPML, lpmLow, stLPML, boLPML, lsLPML, true, "LPL")
     stLPML := s4, boLPML := b4, lsLPML := l4
     if a4
-        armLineLPML := f_drawArmedLine(lpmLow, false)
+        armLineLPML := f_drawArmedLine(lpmLow, true)
     if f4
-        f_signal(lpmLow, false, "LPL"), shortCount += 1
+        f_signal(lpmLow, true, "LPL")
+        longCount += 1
         line.delete(armLineLPML)
 
-    [s5,b5,l5,f5,a5] = f_check(showPMH,  pmHigh,   stPMH,  boPMH,  lsPMH,  true,  "PMH")
+    // PMH - SHORT
+    [s5,b5,l5,f5,a5] = f_check(showPMH, pmHigh, stPMH, boPMH, lsPMH, false, "PMH")
     stPMH := s5, boPMH := b5, lsPMH := l5
     if a5
-        armLinePMH := f_drawArmedLine(pmHigh, true)
+        armLinePMH := f_drawArmedLine(pmHigh, false)
     if f5
-        f_signal(pmHigh, true, "PMH"), longCount += 1
+        f_signal(pmHigh, false, "PMH")
+        shortCount += 1
         line.delete(armLinePMH)
 
-    [s6,b6,l6,f6,a6] = f_check(showPML,  pmLow,    stPML,  boPML,  lsPML,  false, "PML")
+    // PML - LONG
+    [s6,b6,l6,f6,a6] = f_check(showPML, pmLow, stPML, boPML, lsPML, true, "PML")
     stPML := s6, boPML := b6, lsPML := l6
     if a6
-        armLinePML := f_drawArmedLine(pmLow, false)
+        armLinePML := f_drawArmedLine(pmLow, true)
     if f6
-        f_signal(pmLow, false, "PML"), shortCount += 1
+        f_signal(pmLow, true, "PML")
+        longCount += 1
         line.delete(armLinePML)
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
