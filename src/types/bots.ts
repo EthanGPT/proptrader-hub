@@ -25,7 +25,7 @@ export interface Bot {
 
 export interface BotAccount {
   id: string;
-  bot_id: string;
+  bot_id?: string; // optional - accounts are standalone, trades link to both bot and account
   account_name: string;
   prop_firm: string;
   account_size: number;

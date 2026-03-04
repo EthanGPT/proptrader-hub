@@ -1,7 +1,6 @@
 import { useState } from "react";
-import { useSearchParams, Link } from "react-router-dom";
 import { format } from "date-fns";
-import { Plus, Pencil, Trash2, CheckCircle2, XCircle, Clock, Wallet, AlertTriangle, LogOut, Eye, EyeOff } from "lucide-react";
+import { Plus, Pencil, Trash2, CheckCircle2, Clock, Wallet, AlertTriangle, LogOut, Eye, EyeOff } from "lucide-react";
 import { useBots } from "@/context/BotContext";
 import { useAuth } from "@/context/AuthContext";
 import type { BotAccount, BotAccountFormData, BotAccountStatus } from "@/types/bots";
@@ -30,14 +29,11 @@ const statusConfig = {
 const BotAccounts = () => {
   const { user, isConfigured } = useAuth();
   const { bots, botAccounts, addBotAccount, updateBotAccount, deleteBotAccount, loading } = useBots();
-  const [searchParams] = useSearchParams();
-  const botIdParam = searchParams.get("bot");
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState<BotAccount | null>(null);
   const [defaultStatus, setDefaultStatus] = useState<BotAccountStatus>('evaluation');
   const [showInactive, setShowInactive] = useState(false);
-  const [filterBot, setFilterBot] = useState(botIdParam || "all");
 
   if (!isConfigured) {
     return (
@@ -62,18 +58,13 @@ const BotAccounts = () => {
     );
   }
 
-  // Filter accounts by bot first
-  const filteredAccounts = filterBot === "all"
-    ? botAccounts
-    : botAccounts.filter(a => a.bot_id === filterBot);
-
   // Group accounts by status
-  const demos = filteredAccounts.filter(a => a.status === 'demo');
-  const evaluations = filteredAccounts.filter(a => a.status === 'evaluation');
-  const funded = filteredAccounts.filter(a => a.status === 'funded');
-  const passed = filteredAccounts.filter(a => a.status === 'passed');
-  const breached = filteredAccounts.filter(a => a.status === 'breached');
-  const withdrawn = filteredAccounts.filter(a => a.status === 'withdrawn');
+  const demos = botAccounts.filter(a => a.status === 'demo');
+  const evaluations = botAccounts.filter(a => a.status === 'evaluation');
+  const funded = botAccounts.filter(a => a.status === 'funded');
+  const passed = botAccounts.filter(a => a.status === 'passed');
+  const breached = botAccounts.filter(a => a.status === 'breached');
+  const withdrawn = botAccounts.filter(a => a.status === 'withdrawn');
 
   // Active accounts
   const activeAccounts = [...demos, ...funded, ...evaluations, ...passed];
@@ -88,9 +79,10 @@ const BotAccounts = () => {
   const passRate = evalPassed + evalFailed > 0
     ? Math.round((evalPassed / (evalPassed + evalFailed)) * 100) : 0;
 
-  const getBotName = (botId: string) => {
+  const getBotName = (botId?: string) => {
+    if (!botId) return null;
     const bot = bots.find(b => b.id === botId);
-    return bot ? `${bot.name} ${bot.version}` : 'Unknown Bot';
+    return bot ? `${bot.name} ${bot.version}` : null;
   };
 
   const renderAccountCard = (account: BotAccount) => {
@@ -116,7 +108,9 @@ const BotAccounts = () => {
           <div>
             <h3 className="text-lg font-semibold">{account.account_name}</h3>
             <p className="text-sm text-muted-foreground">{account.prop_firm} • ${account.account_size.toLocaleString()}</p>
-            <p className="text-xs text-muted-foreground">{getBotName(account.bot_id)}</p>
+            {getBotName(account.bot_id) && (
+              <p className="text-xs text-muted-foreground">{getBotName(account.bot_id)}</p>
+            )}
           </div>
           <div className="flex items-center gap-1.5">
             <StatusIcon className={cn("h-3.5 w-3.5", config.color)} />
@@ -237,21 +231,6 @@ const BotAccounts = () => {
         </Dialog>
       </div>
 
-      {/* Filter */}
-      {bots.length > 0 && (
-        <div className="flex items-center gap-4">
-          <span className="text-sm text-muted-foreground">Filter by Bot:</span>
-          <Select value={filterBot} onValueChange={setFilterBot}>
-            <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Bots</SelectItem>
-              {bots.map(bot => (
-                <SelectItem key={bot.id} value={bot.id}>{bot.name} {bot.version}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      )}
 
       {/* Active Accounts Section */}
       <section className="space-y-6">
@@ -363,15 +342,11 @@ const BotAccounts = () => {
       )}
 
       {/* Empty State */}
-      {filteredAccounts.length === 0 && (
+      {botAccounts.length === 0 && (
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <Wallet className="h-16 w-16 text-muted-foreground/50 mb-4" />
-          <h3 className="text-lg font-medium mb-2">
-            {filterBot !== "all" ? "No accounts for this bot" : "No accounts yet"}
-          </h3>
-          <p className="text-muted-foreground mb-4">
-            {filterBot !== "all" ? "Try a different filter or add a new account" : "Link a prop firm account to start tracking"}
-          </p>
+          <h3 className="text-lg font-medium mb-2">No accounts yet</h3>
+          <p className="text-muted-foreground mb-4">Add a prop firm account to start tracking</p>
           <Button onClick={() => openAddDialog('evaluation')} className="bg-accent text-accent-foreground hover:bg-accent/90">
             <Plus className="mr-2 h-4 w-4" />
             Add Your First Account
@@ -392,24 +367,6 @@ interface AccountFormProps {
 }
 
 function AccountForm({ bots, onClose, onSave, initialData, defaultStatus = 'evaluation' }: AccountFormProps) {
-  // Show error if no bots available - check BEFORE useState to avoid stale initialization
-  if (bots.length === 0) {
-    return (
-      <div className="text-center py-6">
-        <p className="text-muted-foreground mb-4">You need to create a bot first before adding accounts.</p>
-        <div className="flex justify-center gap-3">
-          <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-          <Link to="/bots">
-            <Button className="bg-accent text-accent-foreground hover:bg-accent/90">
-              <Plus className="mr-2 h-4 w-4" />
-              Create a Bot
-            </Button>
-          </Link>
-        </div>
-      </div>
-    );
-  }
-
   const [formData, setFormData] = useState<BotAccountFormData>(
     initialData ? {
       bot_id: initialData.bot_id,
@@ -428,11 +385,11 @@ function AccountForm({ bots, onClose, onSave, initialData, defaultStatus = 'eval
       current_balance: initialData.current_balance,
       high_water_mark: initialData.high_water_mark,
     } : {
-      bot_id: bots[0].id,
+      // No bot_id - accounts are standalone
       account_name: '',
       prop_firm: defaultStatus === 'demo' ? 'Demo Account' : 'Apex Trader Funding',
       account_size: 50000,
-      contract_size: bots[0].default_contracts || 1,
+      contract_size: 1,
       status: defaultStatus,
       max_drawdown: 2500,
       daily_drawdown: 1500,
@@ -460,10 +417,6 @@ function AccountForm({ bots, onClose, onSave, initialData, defaultStatus = 'eval
     e.preventDefault();
     setError(null);
 
-    if (!formData.bot_id) {
-      setError("Please select a bot");
-      return;
-    }
     if (!formData.account_name.trim()) {
       setError("Please enter an account name");
       return;
@@ -481,18 +434,6 @@ function AccountForm({ bots, onClose, onSave, initialData, defaultStatus = 'eval
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <div className="space-y-2">
-        <Label>Linked Bot</Label>
-        <Select value={formData.bot_id} onValueChange={(v) => setFormData({ ...formData, bot_id: v })}>
-          <SelectTrigger><SelectValue placeholder="Select bot" /></SelectTrigger>
-          <SelectContent>
-            {bots.map((bot) => (
-              <SelectItem key={bot.id} value={bot.id}>{bot.name} {bot.version}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
       <div className="space-y-2">
         <Label>Account Type</Label>
         <Select value={formData.status} onValueChange={(v) => handleStatusChange(v as BotAccountStatus)}>
