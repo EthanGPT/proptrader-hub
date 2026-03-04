@@ -36,6 +36,15 @@ const supabaseAnonKeyRaw = import.meta.env.VITE_SUPABASE_ANON_KEY as string | un
 const supabaseUrl = supabaseUrlRaw?.trim();
 const supabaseAnonKey = supabaseAnonKeyRaw?.trim();
 
+// Debug: test basic fetch to Supabase
+if (supabaseUrl) {
+  fetch(`${supabaseUrl}/rest/v1/`, {
+    method: 'HEAD',
+    headers: { 'apikey': supabaseAnonKey || '' }
+  }).then(() => console.log('[Supabase] Connection test OK'))
+    .catch(e => console.error('[Supabase] Connection test FAILED:', e.message));
+}
+
 // Check if Supabase is configured
 export function isSupabaseConfigured(): boolean {
   return Boolean(supabaseUrl && supabaseAnonKey);
