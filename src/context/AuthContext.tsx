@@ -45,6 +45,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signIn = useCallback(async (email: string, password: string) => {
     if (!supabase) return { error: new Error('Supabase not configured') as unknown as AuthError };
     console.log('[Auth] Attempting signIn with email:', email, 'password length:', password?.length);
+
+    // Debug: try raw fetch first
+    const url = import.meta.env.VITE_SUPABASE_URL?.trim();
+    const key = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim();
+    console.log('[Auth] Testing raw fetch to:', `${url}/auth/v1/token?grant_type=password`);
+    console.log('[Auth] Key length:', key?.length, 'Key valid chars:', /^[A-Za-z0-9._-]+$/.test(key || ''));
+
+    try {
+      const testRes = await fetch(`${url}/auth/v1/token?grant_type=password`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': key || '',
+        },
+        body: JSON.stringify({ email, password })
+      });
+      console.log('[Auth] Raw fetch response:', testRes.status);
+    } catch (rawErr) {
+      console.error('[Auth] Raw fetch failed:', rawErr);
+    }
+
     try {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       console.log('[Auth] signIn result:', error ? error.message : 'success');
