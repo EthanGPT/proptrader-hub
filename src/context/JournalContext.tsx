@@ -102,9 +102,9 @@ export function JournalProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
 
-  // Recalculate account PnL from trades
-  const refreshAccountPnl = useCallback(async (currentAccounts: Account[], currentTrades: Trade[]) => {
-    if (!supabase) return;
+  // Recalculate account PnL from trades (returns updated accounts, updates DB)
+  const recalcAccountPnl = useCallback(async (currentAccounts: Account[], currentTrades: Trade[]): Promise<Account[]> => {
+    if (!supabase) return currentAccounts;
 
     // Get active accounts (funded active or evaluation in_progress)
     const activeAccounts = currentAccounts.filter(a =>
@@ -112,26 +112,39 @@ export function JournalProvider({ children }: { children: ReactNode }) {
       (a.type === 'evaluation' && a.status === 'in_progress')
     );
 
-    // Calculate PnL for each active account
-    for (const account of activeAccounts) {
-      // Get trades for this account
-      const accountTrades = currentTrades.filter(t => t.accountId === account.id);
+    const splitTrades = currentTrades.filter(t => t.accountId === 'split');
 
-      // Also include split trades (distributed equally)
-      const splitTrades = currentTrades.filter(t => t.accountId === 'split');
-      const splitPnl = splitTrades.reduce((sum, t) => sum + (t.pnl || 0), 0) / Math.max(1, activeAccounts.length);
+    const updatedAccounts = await Promise.all(currentAccounts.map(async (account) => {
+      const isActive = activeAccounts.some(a => a.id === account.id);
+      if (!isActive) return account;
 
-      // Calculate total PnL
-      const directPnl = accountTrades.reduce((sum, t) => sum + (t.pnl || 0), 0);
-      const totalPnl = directPnl + splitPnl;
+      // Get direct trades for this account
+      const directTrades = currentTrades.filter(t => t.accountId === account.id);
+      const directPnl = directTrades.reduce((sum, t) => sum + (t.pnl || 0), 0);
 
-      // Update account if PnL changed
-      if (Math.abs(account.profitLoss - totalPnl) > 0.01) {
+      // Split trades: only include trades from ON or AFTER this account's start date
+      let splitPnl = 0;
+      for (const trade of splitTrades) {
+        if (trade.date < account.startDate) continue;
+        const accountsAtTradeTime = activeAccounts.filter(a => a.startDate <= trade.date).length;
+        if (accountsAtTradeTime > 0) {
+          splitPnl += (trade.pnl || 0) / accountsAtTradeTime;
+        }
+      }
+
+      const totalPnl = Math.round((directPnl + splitPnl) * 100) / 100;
+
+      // Update DB if PnL changed
+      if (Math.abs((account.profitLoss || 0) - totalPnl) > 0.01) {
         await supabase.from('journal_accounts')
           .update({ profit_loss: totalPnl })
           .eq('id', account.id);
       }
-    }
+
+      return { ...account, profitLoss: totalPnl };
+    }));
+
+    return updatedAccounts;
   }, []);
 
   // Fetch all data from Supabase
@@ -187,11 +200,18 @@ export function JournalProvider({ children }: { children: ReactNode }) {
 
       setPayouts((payoutsRes.data || []).map(r => toCamelCase<Payout>(r)));
       setExpenses((expensesRes.data || []).map(r => toCamelCase<Expense>(r)));
-      setAccounts((accountsRes.data || []).map(r => toCamelCase<Account>(r)));
       setPropFirms((propFirmsRes.data || []).map(r => toCamelCase<PropFirm>(r)));
       setDailyEntries((dailyEntriesRes.data || []).map(r => toCamelCase<DailyEntry>(r)));
       setTradingSetups((setupsRes.data || []).map(r => toCamelCase<TradingSetup>(r)));
-      setTrades((tradesRes.data || []).map(r => toCamelCase<Trade>(r)));
+
+      const fetchedAccounts = (accountsRes.data || []).map(r => toCamelCase<Account>(r));
+      const fetchedTrades = (tradesRes.data || []).map(r => toCamelCase<Trade>(r));
+      setTrades(fetchedTrades);
+
+      // Recalculate account PnL from trades and update both state and DB
+      const fixedAccounts = await recalcAccountPnl(fetchedAccounts, fetchedTrades);
+      setAccounts(fixedAccounts);
+
       setSyncStatus('synced');
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to fetch data';
@@ -204,7 +224,7 @@ export function JournalProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [user, recalcAccountPnl]);
 
   // Initial fetch and real-time subscriptions
   useEffect(() => {
@@ -283,34 +303,22 @@ export function JournalProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // ── Accounts ─────────────────────────────────────────────────
+  // PnL is recalculated automatically via realtime subscription -> fetchData
   const addAccount = useCallback(async (account: Omit<Account, 'id'>) => {
     if (!supabase || !user) return;
-    const { data, error } = await supabase.from('journal_accounts').insert({
+    const { error } = await supabase.from('journal_accounts').insert({
       user_id: user.id,
       ...toSnakeCase(account as Record<string, unknown>),
-    }).select().single();
-    if (error) {
-      setError(error.message);
-    } else if (data) {
-      // Refresh PnL with the new account included
-      const newAccount = toCamelCase<Account>(data);
-      const updatedAccounts = [...accounts, newAccount];
-      await refreshAccountPnl(updatedAccounts, trades);
-    }
-  }, [user, accounts, trades, refreshAccountPnl]);
+    });
+    if (error) setError(error.message);
+  }, [user]);
 
   const updateAccount = useCallback(async (account: Account) => {
     if (!supabase) return;
     const { id, ...rest } = account;
     const { error } = await supabase.from('journal_accounts').update(toSnakeCase(rest as Record<string, unknown>)).eq('id', id);
-    if (error) {
-      setError(error.message);
-    } else {
-      // Refresh PnL in case status changed
-      const updatedAccounts = accounts.map(a => a.id === id ? account : a);
-      await refreshAccountPnl(updatedAccounts, trades);
-    }
-  }, [accounts, trades, refreshAccountPnl]);
+    if (error) setError(error.message);
+  }, []);
 
   const deleteAccount = useCallback(async (id: string) => {
     if (!supabase) return;
@@ -381,43 +389,28 @@ export function JournalProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // ── Trades ───────────────────────────────────────────────────
+  // PnL is recalculated automatically via realtime subscription -> fetchData
   const addTrade = useCallback(async (trade: Omit<Trade, 'id'>) => {
     if (!supabase || !user) return;
     const { error } = await supabase.from('journal_trades').insert({
       user_id: user.id,
       ...toSnakeCase(trade as Record<string, unknown>),
     });
-    if (error) {
-      setError(error.message);
-    } else {
-      // Refresh PnL with the new trade included
-      const updatedTrades = [...trades, { ...trade, id: 'temp' } as Trade];
-      await refreshAccountPnl(accounts, updatedTrades);
-    }
-  }, [user, accounts, trades, refreshAccountPnl]);
+    if (error) setError(error.message);
+  }, [user]);
 
   const updateTrade = useCallback(async (trade: Trade) => {
     if (!supabase) return;
     const { id, ...rest } = trade;
     const { error } = await supabase.from('journal_trades').update(toSnakeCase(rest as Record<string, unknown>)).eq('id', id);
-    if (error) {
-      setError(error.message);
-    } else {
-      const updatedTrades = trades.map(t => t.id === id ? trade : t);
-      await refreshAccountPnl(accounts, updatedTrades);
-    }
-  }, [accounts, trades, refreshAccountPnl]);
+    if (error) setError(error.message);
+  }, []);
 
   const deleteTrade = useCallback(async (id: string) => {
     if (!supabase) return;
     const { error } = await supabase.from('journal_trades').delete().eq('id', id);
-    if (error) {
-      setError(error.message);
-    } else {
-      const updatedTrades = trades.filter(t => t.id !== id);
-      await refreshAccountPnl(accounts, updatedTrades);
-    }
-  }, [accounts, trades, refreshAccountPnl]);
+    if (error) setError(error.message);
+  }, []);
 
   // ── Import from localStorage ─────────────────────────────────
   const importFromLocalStorage = useCallback(async (data: {
