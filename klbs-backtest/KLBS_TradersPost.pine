@@ -168,23 +168,25 @@ f_signal(lvl, isLong, lvlName) =>
 // TRADERSPOST WEBHOOK ALERT FUNCTION
 // ══════════════════════════════════════════════════════════════════════════════
 f_sendAlert(isLong, lvlName, lvlPrice) =>
-    // Get the base ticker (MNQ, MES, MGC, ZN, ZB, 6E, 6J, etc.)
-    baseTicker = str.contains(_ticker, "MNQ") ? "MNQ" :
-                 str.contains(_ticker, "MES") ? "MES" :
-                 str.contains(_ticker, "MGC") ? "MGC" :
-                 str.contains(_ticker, "M2K") ? "M2K" :
-                 str.contains(_ticker, "ZN")  ? "ZN"  :
-                 str.contains(_ticker, "ZB")  ? "ZB"  :
-                 str.contains(_ticker, "6E")  ? "6E"  :
-                 str.contains(_ticker, "6J")  ? "6J"  : _ticker
+    // CRITICAL: Only send alerts on REAL-TIME bars, not historical recalculations
+    if barstate.isconfirmed and barstate.isrealtime
+        // Get the base ticker (MNQ, MES, MGC, ZN, ZB, 6E, 6J, etc.)
+        baseTicker = str.contains(_ticker, "MNQ") ? "MNQ" :
+                     str.contains(_ticker, "MES") ? "MES" :
+                     str.contains(_ticker, "MGC") ? "MGC" :
+                     str.contains(_ticker, "M2K") ? "M2K" :
+                     str.contains(_ticker, "ZN")  ? "ZN"  :
+                     str.contains(_ticker, "ZB")  ? "ZB"  :
+                     str.contains(_ticker, "6E")  ? "6E"  :
+                     str.contains(_ticker, "6J")  ? "6J"  : _ticker
 
-    action = isLong ? "buy" : "sell"
+        action = isLong ? "buy" : "sell"
 
-    // TradersPost JSON format - matching their expected schema
-    alertMsg = '{"ticker": "' + baseTicker + '", "action": "' + action + '", "price": "' + str.tostring(lvlPrice) + '", "time": "' + str.format_time(timenow, "yyyy-MM-dd'T'HH:mm:ssZ", tz) + '", "interval": "' + timeframe.period + '"}'
+        // TradersPost JSON format - matching their expected schema
+        alertMsg = '{"ticker": "' + baseTicker + '", "action": "' + action + '", "price": "' + str.tostring(lvlPrice) + '", "time": "' + str.format_time(timenow, "yyyy-MM-dd'T'HH:mm:ssZ", tz) + '", "interval": "' + timeframe.period + '"}'
 
-    // Fire alert with JSON payload - use alert.freq_once_per_bar to prevent duplicates
-    alert(alertMsg, alert.freq_once_per_bar)
+        // Fire alert with JSON payload - use alert.freq_once_per_bar to prevent duplicates
+        alert(alertMsg, alert.freq_once_per_bar)
 
 // ══════════════════════════════════════════════════════════════════════════════
 // CORE STATE MACHINE - MATCHES PYTHON BACKTEST ($1.12M PROFIT)
