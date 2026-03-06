@@ -282,10 +282,12 @@ if inPM
 
 showPDH  = not na(prevDayH) and not f_near(prevDayH, lpmHigh) and not f_near(prevDayH, lpmLow) and not f_near(prevDayH, pmHigh) and not f_near(prevDayH, pmLow)
 showPDL  = not na(prevDayL) and not f_near(prevDayL, lpmHigh) and not f_near(prevDayL, lpmLow) and not f_near(prevDayL, pmHigh) and not f_near(prevDayL, pmLow)
-showLPMH = not na(lpmHigh)  and not f_near(lpmHigh, pmHigh) and not f_near(lpmHigh, pmLow)
-showLPML = not na(lpmLow)   and not f_near(lpmLow,  pmHigh) and not f_near(lpmLow,  pmLow)
-showPMH  = not na(pmHigh)
-showPML  = not na(pmLow)
+// LPH/LPL only tradeable AFTER LPM session ends (03:00 NY)
+showLPMH = not na(lpmHigh) and not inLPM and not f_near(lpmHigh, pmHigh) and not f_near(lpmHigh, pmLow)
+showLPML = not na(lpmLow)  and not inLPM and not f_near(lpmLow,  pmHigh) and not f_near(lpmLow,  pmLow)
+// PMH/PML only tradeable AFTER PM session ends (09:30 NY)
+showPMH  = not na(pmHigh) and not inPM
+showPML  = not na(pmLow)  and not inPM
 
 if showPDH
     [l, b] = f_drawLevel(linePDH, lblPDH, prevDayH, color.black, 2, line.style_dashed, "PDH")
@@ -352,45 +354,49 @@ if is15m
         longCount += 1
         line.delete(armLinePDL)
 
-    // LPH - SHORT
-    [s3,b3,l3,f3,a3] = f_check(showLPMH, lpmHigh, stLPMH, boLPMH, lsLPMH, false, "LPH")
-    stLPMH := s3, boLPMH := b3, lsLPMH := l3
-    if a3
-        armLineLPMH := f_drawArmedLine(lpmHigh, false)
-    if f3
-        f_signal(lpmHigh, false, "LPH")
-        shortCount += 1
-        line.delete(armLineLPMH)
+    // LPH - SHORT (HARD GATE: only process after LPM session ends at 03:00)
+    if not inLPM
+        [s3,b3,l3,f3,a3] = f_check(showLPMH, lpmHigh, stLPMH, boLPMH, lsLPMH, false, "LPH")
+        stLPMH := s3, boLPMH := b3, lsLPMH := l3
+        if a3
+            armLineLPMH := f_drawArmedLine(lpmHigh, false)
+        if f3
+            f_signal(lpmHigh, false, "LPH")
+            shortCount += 1
+            line.delete(armLineLPMH)
 
-    // LPL - LONG
-    [s4,b4,l4,f4,a4] = f_check(showLPML, lpmLow, stLPML, boLPML, lsLPML, true, "LPL")
-    stLPML := s4, boLPML := b4, lsLPML := l4
-    if a4
-        armLineLPML := f_drawArmedLine(lpmLow, true)
-    if f4
-        f_signal(lpmLow, true, "LPL")
-        longCount += 1
-        line.delete(armLineLPML)
+    // LPL - LONG (HARD GATE: only process after LPM session ends at 03:00)
+    if not inLPM
+        [s4,b4,l4,f4,a4] = f_check(showLPML, lpmLow, stLPML, boLPML, lsLPML, true, "LPL")
+        stLPML := s4, boLPML := b4, lsLPML := l4
+        if a4
+            armLineLPML := f_drawArmedLine(lpmLow, true)
+        if f4
+            f_signal(lpmLow, true, "LPL")
+            longCount += 1
+            line.delete(armLineLPML)
 
-    // PMH - SHORT
-    [s5,b5,l5,f5,a5] = f_check(showPMH, pmHigh, stPMH, boPMH, lsPMH, false, "PMH")
-    stPMH := s5, boPMH := b5, lsPMH := l5
-    if a5
-        armLinePMH := f_drawArmedLine(pmHigh, false)
-    if f5
-        f_signal(pmHigh, false, "PMH")
-        shortCount += 1
-        line.delete(armLinePMH)
+    // PMH - SHORT (HARD GATE: only process after PM session ends at 09:30)
+    if not inPM
+        [s5,b5,l5,f5,a5] = f_check(showPMH, pmHigh, stPMH, boPMH, lsPMH, false, "PMH")
+        stPMH := s5, boPMH := b5, lsPMH := l5
+        if a5
+            armLinePMH := f_drawArmedLine(pmHigh, false)
+        if f5
+            f_signal(pmHigh, false, "PMH")
+            shortCount += 1
+            line.delete(armLinePMH)
 
-    // PML - LONG
-    [s6,b6,l6,f6,a6] = f_check(showPML, pmLow, stPML, boPML, lsPML, true, "PML")
-    stPML := s6, boPML := b6, lsPML := l6
-    if a6
-        armLinePML := f_drawArmedLine(pmLow, true)
-    if f6
-        f_signal(pmLow, true, "PML")
-        longCount += 1
-        line.delete(armLinePML)
+    // PML - LONG (HARD GATE: only process after PM session ends at 09:30)
+    if not inPM
+        [s6,b6,l6,f6,a6] = f_check(showPML, pmLow, stPML, boPML, lsPML, true, "PML")
+        stPML := s6, boPML := b6, lsPML := l6
+        if a6
+            armLinePML := f_drawArmedLine(pmLow, true)
+        if f6
+            f_signal(pmLow, true, "PML")
+            longCount += 1
+            line.delete(armLinePML)
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 var table dash = na

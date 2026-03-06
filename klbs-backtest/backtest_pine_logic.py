@@ -206,20 +206,22 @@ def run_pine_backtest(symbol, cfg, include_fees=True):
         # ══════════════════════════════════════════════════════════════════════
         levels = {}
 
-        # Pine: showPMH = not na(pmHigh)
-        if not np.isnan(pm_h):
+        # Pine: showPMH = not na(pmHigh) and not inPM
+        # PMH/PML only tradeable AFTER PM session ends (09:30 NY)
+        if not np.isnan(pm_h) and not cur_pm:
             levels['PMH'] = (pm_h, False)  # SHORT
 
-        # Pine: showPML = not na(pmLow)
-        if not np.isnan(pm_l):
+        # Pine: showPML = not na(pmLow) and not inPM
+        if not np.isnan(pm_l) and not cur_pm:
             levels['PML'] = (pm_l, True)   # LONG
 
-        # Pine: showLPMH = not na(lpmHigh) and not f_near(lpmHigh, pmHigh) and not f_near(lpmHigh, pmLow)
-        if not np.isnan(lpm_h) and not f_near(lpm_h, pm_h) and not f_near(lpm_h, pm_l):
+        # Pine: showLPMH = not na(lpmHigh) and not inLPM and not f_near(lpmHigh, pmHigh) and not f_near(lpmHigh, pmLow)
+        # LPH/LPL only tradeable AFTER LPM session ends (03:00 NY)
+        if not np.isnan(lpm_h) and not cur_lpm and not f_near(lpm_h, pm_h) and not f_near(lpm_h, pm_l):
             levels['LPH'] = (lpm_h, False)  # SHORT
 
-        # Pine: showLPML = not na(lpmLow) and not f_near(lpmLow, pmHigh) and not f_near(lpmLow, pmLow)
-        if not np.isnan(lpm_l) and not f_near(lpm_l, pm_h) and not f_near(lpm_l, pm_l):
+        # Pine: showLPML = not na(lpmLow) and not inLPM and not f_near(lpmLow, pmHigh) and not f_near(lpmLow, pmLow)
+        if not np.isnan(lpm_l) and not cur_lpm and not f_near(lpm_l, pm_h) and not f_near(lpm_l, pm_l):
             levels['LPL'] = (lpm_l, True)   # LONG
 
         # Pine: showPDH = not na(prevDayH) and not f_near(prevDayH, lpmHigh) and not f_near(prevDayH, lpmLow) and not f_near(prevDayH, pmHigh) and not f_near(prevDayH, pmLow)
