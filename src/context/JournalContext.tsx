@@ -102,6 +102,38 @@ export function JournalProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
 
+  // Recalculate account PnL from trades
+  const refreshAccountPnl = useCallback(async (currentAccounts: Account[], currentTrades: Trade[]) => {
+    if (!supabase) return;
+
+    // Get active accounts (funded active or evaluation in_progress)
+    const activeAccounts = currentAccounts.filter(a =>
+      (a.type === 'funded' && a.status === 'active') ||
+      (a.type === 'evaluation' && a.status === 'in_progress')
+    );
+
+    // Calculate PnL for each active account
+    for (const account of activeAccounts) {
+      // Get trades for this account
+      const accountTrades = currentTrades.filter(t => t.accountId === account.id);
+
+      // Also include split trades (distributed equally)
+      const splitTrades = currentTrades.filter(t => t.accountId === 'split');
+      const splitPnl = splitTrades.reduce((sum, t) => sum + (t.pnl || 0), 0) / Math.max(1, activeAccounts.length);
+
+      // Calculate total PnL
+      const directPnl = accountTrades.reduce((sum, t) => sum + (t.pnl || 0), 0);
+      const totalPnl = directPnl + splitPnl;
+
+      // Update account if PnL changed
+      if (Math.abs(account.profitLoss - totalPnl) > 0.01) {
+        await supabase.from('journal_accounts')
+          .update({ profit_loss: totalPnl })
+          .eq('id', account.id);
+      }
+    }
+  }, []);
+
   // Fetch all data from Supabase
   const fetchData = useCallback(async () => {
     if (!supabase || !user) {
@@ -253,19 +285,32 @@ export function JournalProvider({ children }: { children: ReactNode }) {
   // ── Accounts ─────────────────────────────────────────────────
   const addAccount = useCallback(async (account: Omit<Account, 'id'>) => {
     if (!supabase || !user) return;
-    const { error } = await supabase.from('journal_accounts').insert({
+    const { data, error } = await supabase.from('journal_accounts').insert({
       user_id: user.id,
       ...toSnakeCase(account as Record<string, unknown>),
-    });
-    if (error) setError(error.message);
-  }, [user]);
+    }).select().single();
+    if (error) {
+      setError(error.message);
+    } else if (data) {
+      // Refresh PnL with the new account included
+      const newAccount = toCamelCase<Account>(data);
+      const updatedAccounts = [...accounts, newAccount];
+      await refreshAccountPnl(updatedAccounts, trades);
+    }
+  }, [user, accounts, trades, refreshAccountPnl]);
 
   const updateAccount = useCallback(async (account: Account) => {
     if (!supabase) return;
     const { id, ...rest } = account;
     const { error } = await supabase.from('journal_accounts').update(toSnakeCase(rest as Record<string, unknown>)).eq('id', id);
-    if (error) setError(error.message);
-  }, []);
+    if (error) {
+      setError(error.message);
+    } else {
+      // Refresh PnL in case status changed
+      const updatedAccounts = accounts.map(a => a.id === id ? account : a);
+      await refreshAccountPnl(updatedAccounts, trades);
+    }
+  }, [accounts, trades, refreshAccountPnl]);
 
   const deleteAccount = useCallback(async (id: string) => {
     if (!supabase) return;
@@ -342,21 +387,37 @@ export function JournalProvider({ children }: { children: ReactNode }) {
       user_id: user.id,
       ...toSnakeCase(trade as Record<string, unknown>),
     });
-    if (error) setError(error.message);
-  }, [user]);
+    if (error) {
+      setError(error.message);
+    } else {
+      // Refresh PnL with the new trade included
+      const updatedTrades = [...trades, { ...trade, id: 'temp' } as Trade];
+      await refreshAccountPnl(accounts, updatedTrades);
+    }
+  }, [user, accounts, trades, refreshAccountPnl]);
 
   const updateTrade = useCallback(async (trade: Trade) => {
     if (!supabase) return;
     const { id, ...rest } = trade;
     const { error } = await supabase.from('journal_trades').update(toSnakeCase(rest as Record<string, unknown>)).eq('id', id);
-    if (error) setError(error.message);
-  }, []);
+    if (error) {
+      setError(error.message);
+    } else {
+      const updatedTrades = trades.map(t => t.id === id ? trade : t);
+      await refreshAccountPnl(accounts, updatedTrades);
+    }
+  }, [accounts, trades, refreshAccountPnl]);
 
   const deleteTrade = useCallback(async (id: string) => {
     if (!supabase) return;
     const { error } = await supabase.from('journal_trades').delete().eq('id', id);
-    if (error) setError(error.message);
-  }, []);
+    if (error) {
+      setError(error.message);
+    } else {
+      const updatedTrades = trades.filter(t => t.id !== id);
+      await refreshAccountPnl(accounts, updatedTrades);
+    }
+  }, [accounts, trades, refreshAccountPnl]);
 
   // ── Import from localStorage ─────────────────────────────────
   const importFromLocalStorage = useCallback(async (data: {

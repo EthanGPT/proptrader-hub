@@ -290,7 +290,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
       return next;
     });
     scheduleSync();
-  }, [scheduleSync]);
+    refreshAccountPnl();
+  }, [scheduleSync, refreshAccountPnl]);
 
   const updateAccount = useCallback((account: Account) => {
     _setAccounts((prev) => {
@@ -299,7 +300,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
       return next;
     });
     scheduleSync();
-  }, [scheduleSync]);
+    refreshAccountPnl();
+  }, [scheduleSync, refreshAccountPnl]);
 
   const deleteAccount = useCallback((id: string) => {
     _setAccounts((prev) => {
