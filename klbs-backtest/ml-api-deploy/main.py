@@ -42,20 +42,36 @@ class FilterConfig:
 
     # Market filters
     max_atr_pct: float = 1.5
-    rsi_overbought: float = 75.0
-    rsi_oversold: float = 25.0
+    rsi_overbought: float = 65.0  # Changed from 75 - tighter filter improves results
+    rsi_oversold: float = 35.0   # Changed from 25 - tighter filter improves results
 
-    # TradersPost accounts
+    # Position sizing thresholds (backtest: 80% WR at 65%+, 93% WR at 70%+)
+    position_sizing_enabled: bool = True
+    confidence_2x: float = 0.65  # 2 contracts at 65%+ confidence
+    confidence_3x: float = 0.70  # 3 contracts at 70%+ confidence
+
+    # TradersPost accounts with position limits
     accounts: List[Dict] = field(default_factory=lambda: [
         {
             "name": "Test v1",
             "webhook": os.getenv("TRADERSPOST_WEBHOOK_1", ""),
             "instruments": ["MES", "MNQ", "MGC"],
+            "max_contracts": {"MES": 3, "MNQ": 3, "MGC": 3},  # No limits on test
+            "funded": False,
         },
         {
-            "name": "Ethan PA 1",
+            "name": "Ethan - Apex",
             "webhook": os.getenv("TRADERSPOST_WEBHOOK_2", ""),
-            "instruments": ["MES", "MNQ"],
+            "instruments": ["MES", "MNQ"],  # No MGC on Apex
+            "max_contracts": {"MES": 3, "MNQ": 3},
+            "funded": True,
+        },
+        {
+            "name": "Ethan - Lucid",
+            "webhook": os.getenv("TRADERSPOST_WEBHOOK_3", ""),
+            "instruments": ["MES", "MNQ", "MGC"],
+            "max_contracts": {"MES": 3, "MNQ": 3, "MGC": 2},  # MGC capped at 2 for 25K
+            "funded": True,
         },
     ])
 
@@ -68,6 +84,20 @@ def get_config_summary() -> Dict:
         "max_consecutive_losses": config.max_consecutive_losses,
         "enabled_instruments": config.enabled_instruments,
         "enabled_sessions": config.enabled_sessions,
+        "rsi_thresholds": f"{config.rsi_overbought}/{config.rsi_oversold}",
+        "position_sizing": {
+            "enabled": config.position_sizing_enabled,
+            "2x_at": f"{config.confidence_2x:.0%}",
+            "3x_at": f"{config.confidence_3x:.0%}",
+        },
+        "accounts": [
+            {
+                "name": a["name"],
+                "instruments": a["instruments"],
+                "max_contracts": a.get("max_contracts", {}),
+            }
+            for a in config.accounts
+        ],
     }
 
 def update_config(**kwargs):
@@ -406,6 +436,34 @@ def should_take_signal(signal: Dict) -> tuple:
 
     return True, "Approved", prob
 
+
+def get_position_size(confidence: float, ticker: str, account: Dict) -> int:
+    """
+    Calculate position size based on ML confidence.
+
+    Backtest results (65/35 RSI):
+      55-65% confidence: 58.6% WR → 1 contract
+      65-70% confidence: 80.2% WR → 2 contracts
+      70%+ confidence:   93.1% WR → 3 contracts
+    """
+    if not config.position_sizing_enabled:
+        return 1
+
+    # Base position from confidence
+    if confidence >= config.confidence_3x:
+        base_contracts = 3
+    elif confidence >= config.confidence_2x:
+        base_contracts = 2
+    else:
+        base_contracts = 1
+
+    # Apply account-specific limits
+    max_contracts = account.get("max_contracts", {}).get(ticker, 3)
+    final_contracts = min(base_contracts, max_contracts)
+
+    return final_contracts
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # FASTAPI APP
 # ══════════════════════════════════════════════════════════════════════════════
@@ -504,11 +562,6 @@ async def receive_signal(request: Request):
         state.trades_today += 1
 
         ticker = payload.get("ticker", "")
-        tp_payload = {
-            "ticker": ticker,
-            "action": payload.get("action"),
-            "price": payload.get("price"),
-        }
 
         accounts_sent = []
         async with httpx.AsyncClient() as client:
@@ -518,10 +571,23 @@ async def receive_signal(request: Request):
                 webhook_url = account.get("webhook", "")
                 if not webhook_url:
                     continue
+
+                # Calculate position size for this account
+                quantity = get_position_size(confidence, ticker, account)
+
+                # TradersPost payload with signal override for quantity
+                tp_payload = {
+                    "ticker": ticker,
+                    "action": payload.get("action"),
+                    "price": payload.get("price"),
+                    "quantityType": "fixed_quantity",
+                    "quantity": quantity,
+                }
+
                 try:
                     resp = await client.post(webhook_url, json=tp_payload, timeout=10.0)
-                    accounts_sent.append(account.get("name"))
-                    print(f"  → {account.get('name')}: {resp.status_code}")
+                    accounts_sent.append(f"{account.get('name')}({quantity}x)")
+                    print(f"  → {account.get('name')}: {resp.status_code} | {quantity} contracts")
                 except Exception as e:
                     print(f"  → {account.get('name')}: ERROR {e}")
 
