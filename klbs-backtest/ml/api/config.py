@@ -82,6 +82,11 @@ class FilterConfig:
             "webhook": os.getenv("TRADERSPOST_WEBHOOK_2", ""),
             "instruments": ["MES", "MNQ"],
         },
+        {
+            "name": "Ethan - Lucid",  # Lucid account - all micros
+            "webhook": os.getenv("TRADERSPOST_WEBHOOK_3", "https://webhooks.traderspost.io/trading/webhook/7d4bff23-a823-4bdc-bf6b-dc1cb1dcc5f9/3b1087b06f21d7cf0060284393faf094"),
+            "instruments": ["MGC", "MNQ", "MES"],
+        },
         # Add more accounts as needed
     ])
 
