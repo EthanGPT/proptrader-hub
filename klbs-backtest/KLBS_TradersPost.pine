@@ -354,14 +354,18 @@ if inPM
     pmHigh := na(pmHigh) ? high : math.max(pmHigh, high)
     pmLow  := na(pmLow)  ? low  : math.min(pmLow,  low)
 
-showPDH  = not na(prevDayH) and not f_near(prevDayH, lpmHigh) and not f_near(prevDayH, lpmLow) and not f_near(prevDayH, pmHigh) and not f_near(prevDayH, pmLow)
-showPDL  = not na(prevDayL) and not f_near(prevDayL, lpmHigh) and not f_near(prevDayL, lpmLow) and not f_near(prevDayL, pmHigh) and not f_near(prevDayL, pmLow)
-// LPH/LPL only tradeable AFTER LPM session ends (03:00 NY)
-showLPMH = not na(lpmHigh) and not inLPM and not f_near(lpmHigh, pmHigh) and not f_near(lpmHigh, pmLow)
-showLPML = not na(lpmLow)  and not inLPM and not f_near(lpmLow,  pmHigh) and not f_near(lpmLow,  pmLow)
-// PMH/PML only tradeable AFTER PM session ends (09:30 NY)
+// PMH/PML only tradeable AFTER PM session ends (09:30 NY) - define first for proximity gates
 showPMH  = not na(pmHigh) and not inPM
 showPML  = not na(pmLow)  and not inPM
+
+// LPH/LPL only tradeable AFTER LPM session ends (03:00 NY)
+// Only check PM proximity when PM levels are actually active
+showLPMH = not na(lpmHigh) and not inLPM and not (showPMH and f_near(lpmHigh, pmHigh)) and not (showPML and f_near(lpmHigh, pmLow))
+showLPML = not na(lpmLow)  and not inLPM and not (showPMH and f_near(lpmLow,  pmHigh)) and not (showPML and f_near(lpmLow,  pmLow))
+
+// PDH/PDL - only check proximity against levels that are actually being shown
+showPDH  = not na(prevDayH) and not (showLPMH and f_near(prevDayH, lpmHigh)) and not (showLPML and f_near(prevDayH, lpmLow)) and not (showPMH and f_near(prevDayH, pmHigh)) and not (showPML and f_near(prevDayH, pmLow))
+showPDL  = not na(prevDayL) and not (showLPMH and f_near(prevDayL, lpmHigh)) and not (showLPML and f_near(prevDayL, lpmLow)) and not (showPMH and f_near(prevDayL, pmHigh)) and not (showPML and f_near(prevDayL, pmLow))
 
 if showPDH
     [l, b] = f_drawLevel(linePDH, lblPDH, prevDayH, color.black, 2, line.style_dashed, "PDH")
