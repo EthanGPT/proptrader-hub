@@ -32,6 +32,7 @@ jobs:
           VITE_R2_AUTH_TOKEN: ${{ secrets.VITE_R2_AUTH_TOKEN }}
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_ML_API_URL: ${{ secrets.VITE_ML_API_URL }}
 
       - uses: actions/upload-pages-artifact@v3
         with:
