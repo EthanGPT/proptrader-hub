@@ -49,7 +49,7 @@ class FilterConfig:
 
     # Position sizing thresholds (backtest: 80% WR at 65%+, 93% WR at 70%+)
     position_sizing_enabled: bool = True
-    confidence_2x: float = 0.60  # 2 contracts at 60%+ confidence
+    confidence_2x: float = 0.65  # 2 contracts at 65%+ confidence
     confidence_3x: float = 0.70  # 3 contracts at 70%+ confidence
 
     # TradersPost accounts with position limits
@@ -58,7 +58,7 @@ class FilterConfig:
             "name": "Test v1",
             "webhook": os.getenv("TRADERSPOST_WEBHOOK_1", ""),
             "instruments": ["MES", "MNQ", "MGC"],
-            "max_contracts": {"MES": 3, "MNQ": 3, "MGC": 3},  # No limits on test
+            "max_contracts": {"MES": 3, "MNQ": 3, "MGC": 2},  # MGC capped at 2 always
             "funded": False,
         },
         {
@@ -156,6 +156,9 @@ class SupabaseDB:
                 "rsi": float(signal.get("rsi", 50)),
                 "rsi_roc": float(signal.get("rsi_roc", 0)),
                 "macd": float(signal.get("macd", 0)),
+                "macd_hist": float(signal.get("macd_hist", 0)),
+                "plus_di": float(signal.get("plus_di", 25)),
+                "minus_di": float(signal.get("minus_di", 25)),
                 "adx": float(signal.get("adx", 25)),
                 "atr_pct": float(signal.get("atr_pct", 0.5)),
                 "confidence": confidence,
@@ -349,21 +352,23 @@ def load_model():
 
 def extract_features(signal: Dict) -> np.ndarray:
     """
-    Extract 26 features matching training script v4 CLEAN.
+    Extract 30 features matching training script v5.
 
-    Features (26 total) - Data-driven scores only, NO raw values:
+    Features (30 total) - v5 with analysis-driven improvements:
     - Level one-hot (6): PDH, PDL, PMH, PML, LPH, LPL
     - Direction one-hot (2): LONG, SHORT
     - Session one-hot (2): London, NY
     - Day of week one-hot (5): Mon-Fri
     - Hour normalized (1)
+    - Hour_Score (1): Boost 9am, penalize 11am/13pm/15pm (NEW)
     - Instrument one-hot (3): MES, MNQ, MGC
     - RSI_Score (1): Direction-aware from backtest data
     - RSI_Momentum (1): RSI ROC aligned with direction
     - MACD_Score (1): Direction-aware MACD alignment
     - MACD_Hist (1): Momentum direction from histogram
-    - DI_Align (1): +DI/-DI alignment with direction
-    - ATR% normalized (1)
+    - DI_Align (1): +DI/-DI alignment (STRENGTHENED 1.0/0.3)
+    - ATR_Score (1): Direction-aware ATR (NEW)
+    - Setup_Score (1): Penalize bad combos (NEW)
     - Historical level WR (1)
     - Historical session WR (1)
     """
@@ -401,6 +406,19 @@ def extract_features(signal: Dict) -> np.ndarray:
         hour = 12
     features.append(hour / 24.0)
 
+    # 5b. Hour_Score (1 feature) - Boost/penalize specific hours
+    if hour == 9:
+        hour_score = 1.0   # Best NY hour - 56.8% WR
+    elif hour in [7, 8]:
+        hour_score = 0.8   # Good London hours
+    elif hour in [10, 12]:
+        hour_score = 0.7   # OK hours
+    elif hour in [11, 13, 14, 15]:
+        hour_score = 0.3   # Bad hours - 52.7-54.5% WR
+    else:
+        hour_score = 0.5   # Neutral
+    features.append(hour_score)
+
     # 6. Instrument one-hot (3 features)
     instruments = ["MES", "MNQ", "MGC"]
     inst = signal.get("ticker", "MNQ")
@@ -415,57 +433,112 @@ def extract_features(signal: Dict) -> np.ndarray:
     minus_di = float(signal.get("minus_di", 25))
     atr_pct = float(signal.get("atr_pct", 0.5))
 
-    # RSI_SCORE (1 feature) - Direction-aware from backtest data
+    # RSI_SCORE (1 feature) - Direction-aware from 25k signal analysis
+    # LONG: RSI 55-65 = best (60-62% WR), <30 = worst (50.6% WR)
+    # SHORT: RSI <35 = best (59-60% WR), >70 = worst (51.2% WR)
     if is_long:
-        if rsi < 35:
-            rsi_score = 0.3   # Falling knife - 51% WR
-        elif rsi < 45:
-            rsi_score = 0.6   # OK - 57% WR
+        if rsi < 30:
+            rsi_score = 0.3   # 50.6% WR
+        elif rsi < 40:
+            rsi_score = 0.6   # 53-57% WR
+        elif rsi < 50:
+            rsi_score = 0.7   # 56-59% WR
+        elif rsi < 55:
+            rsi_score = 0.9   # 60.4% WR
         elif rsi < 65:
-            rsi_score = 1.0   # Best - 62% WR
+            rsi_score = 1.0   # 59-62% WR (BEST)
         else:
-            rsi_score = 0.8   # Still good
-    else:
-        if rsi > 65:
-            rsi_score = 0.3   # FOMO rally - 51% WR
-        elif rsi > 55:
-            rsi_score = 0.6   # OK - 55% WR
-        elif rsi > 35:
-            rsi_score = 1.0   # Best - 60% WR
+            rsi_score = 0.9   # 60% WR
+    else:  # SHORT
+        if rsi < 35:
+            rsi_score = 1.0   # 59-60% WR (BEST)
+        elif rsi < 50:
+            rsi_score = 0.8   # 56-58% WR
+        elif rsi < 60:
+            rsi_score = 0.6   # 54-55% WR
+        elif rsi < 70:
+            rsi_score = 0.4   # 52% WR
         else:
-            rsi_score = 0.8   # Still good
+            rsi_score = 0.3   # 51.2% WR
     features.append(rsi_score)
 
     # RSI_MOMENTUM (1 feature) - RSI ROC aligned with direction
+    # LONG + rising = 61.8% WR, falling = 54.9% WR (6.9% edge)
+    # SHORT + falling = 58.7% WR, rising = 52.8% WR (5.9% edge)
     if is_long:
-        rsi_momentum = 1.0 if rsi_roc >= 0 else (0.7 if rsi_roc >= -5 else 0.3)
+        rsi_momentum = 1.0 if rsi_roc >= 0 else 0.7
     else:
-        rsi_momentum = 1.0 if rsi_roc <= 0 else (0.7 if rsi_roc <= 5 else 0.3)
+        rsi_momentum = 0.9 if rsi_roc <= 0 else 0.6
     features.append(rsi_momentum)
 
     # MACD_SCORE (1 feature) - Direction-aware MACD alignment
+    # LONG + bullish = 59.0% WR, bearish = 55.2% WR
+    # SHORT + bearish = 56.7% WR, bullish = 53.4% WR
     if is_long:
-        macd_score = 1.0 if macd > 0 else 0.5
+        macd_score = 0.9 if macd > 0 else 0.7
     else:
-        macd_score = 1.0 if macd <= 0 else 0.5
+        macd_score = 0.8 if macd <= 0 else 0.6
     features.append(macd_score)
 
     # MACD_HIST (1 feature) - Momentum direction
+    # LONG + positive = 59.1% WR, negative = 55.9% WR
+    # SHORT + negative = 56.6% WR, positive = 53.4% WR
     if is_long:
-        macd_hist_score = 1.0 if macd_hist > 0 else 0.5
+        macd_hist_score = 0.9 if macd_hist > 0 else 0.75
     else:
-        macd_hist_score = 1.0 if macd_hist <= 0 else 0.5
+        macd_hist_score = 0.8 if macd_hist <= 0 else 0.6
     features.append(macd_hist_score)
 
     # DI_ALIGN (1 feature) - Directional movement alignment
+    # LONG + aligned = 59.7% WR, not = 55.5% WR (4.2% edge)
+    # SHORT + aligned = 56.8% WR, not = 53.3% WR (3.5% edge)
     if is_long:
-        di_align = 1.0 if plus_di > minus_di else 0.5
+        di_align = 0.9 if plus_di > minus_di else 0.7
     else:
-        di_align = 1.0 if minus_di > plus_di else 0.5
+        di_align = 0.8 if minus_di > plus_di else 0.6
     features.append(di_align)
 
-    # ATR% normalized (1 feature)
-    features.append(min(atr_pct / 2.0, 1.0))
+    # ATR_SCORE (1 feature) - Direction-aware ATR
+    # LONG: Low 57.2%, Med 56.5%, High 56.0% (all similar)
+    # SHORT: Low 54.4%, Med 56.4%, High 61.4% (high vol BEST!)
+    if is_long:
+        if atr_pct < 0.25:
+            atr_score = 0.8   # 57.2% WR
+        elif atr_pct < 0.5:
+            atr_score = 0.75  # 56.5% WR
+        else:
+            atr_score = 0.7   # 56.0% WR
+    else:  # SHORT - high vol is best!
+        if atr_pct < 0.25:
+            atr_score = 0.6   # 54.4% WR
+        elif atr_pct < 0.5:
+            atr_score = 0.8   # 56.4% WR
+        else:
+            atr_score = 1.0   # 61.4% WR (BEST!)
+    features.append(atr_score)
+
+    # SETUP_SCORE (1 feature) - Penalize worst combos (NEW)
+    direction = "LONG" if is_long else "SHORT"
+    setup_key = f"{level}_{direction}_{session}"
+    BAD_SETUPS = {
+        "PDL_LONG_London": 0.2,   # 47.6% WR - worst!
+        "PDH_SHORT_London": 0.2,  # 47.7% WR - avoid!
+        "PDH_SHORT_NY": 0.5,      # 52.8% WR
+        "LPH_SHORT_London": 0.6,  # 53.5% WR
+    }
+    GOOD_SETUPS = {
+        "PML_LONG_London": 1.0,   # 58.8% WR - best!
+        "PDL_LONG_NY": 0.95,      # 56.9% WR
+        "LPL_LONG_London": 0.9,   # 56.0% WR
+        "PMH_SHORT_London": 0.9,  # 56.0% WR
+    }
+    if setup_key in BAD_SETUPS:
+        setup_score = BAD_SETUPS[setup_key]
+    elif setup_key in GOOD_SETUPS:
+        setup_score = GOOD_SETUPS[setup_key]
+    else:
+        setup_score = 0.7  # Neutral
+    features.append(setup_score)
 
     # 8. Historical win rates (2 features)
     features.append(LEVEL_WIN_RATES.get(level, 0.55))
