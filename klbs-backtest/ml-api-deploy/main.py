@@ -97,6 +97,7 @@ def get_config_summary() -> Dict:
                 "name": a["name"],
                 "instruments": a["instruments"],
                 "max_contracts": a.get("max_contracts", {}),
+                "webhook_configured": bool(a.get("webhook", "")),
             }
             for a in config.accounts
         ],
