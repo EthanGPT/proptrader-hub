@@ -151,7 +151,8 @@ class SupabaseDB:
             print(f"Supabase connection failed: {e}")
 
     def log_signal(self, signal: Dict, approved: bool, reason: str,
-                   confidence: float, accounts_sent: List[str] = None) -> Optional[int]:
+                   confidence: float, accounts_sent: List[str] = None,
+                   sentiment_data: Dict = None) -> Optional[int]:
         if not self.enabled:
             return None
         try:
@@ -177,6 +178,12 @@ class SupabaseDB:
                 "reason": reason,
                 "accounts_sent": accounts_sent or [],
             }
+            # Add sentiment data if available (v6)
+            if sentiment_data:
+                record["News_Sentiment"] = sentiment_data.get("News_Sentiment", 0.5)
+                record["News_Volume"] = sentiment_data.get("News_Volume", 0.0)
+                record["Sentiment_Momentum"] = sentiment_data.get("Sentiment_Momentum", 0.5)
+                record["News_Volatility"] = sentiment_data.get("News_Volatility", 0.0)
             result = self.client.table("ml_signals").insert(record).execute()
             return result.data[0].get("id") if result.data else None
         except Exception as e:
@@ -816,6 +823,15 @@ async def receive_signal(request: Request):
     # Entry signal - ML decision
     approved, reason, confidence = should_take_signal(payload)
 
+    # Capture sentiment for logging (v6)
+    sentiment_data = None
+    fetcher = get_sentiment_fetcher()
+    if fetcher:
+        try:
+            sentiment_data = fetcher.get_current_sentiment(payload.get("ticker", "MNQ"))
+        except Exception as e:
+            print(f"Sentiment capture error: {e}")
+
     log_entry = {
         "time": datetime.now().isoformat(),
         "ticker": payload.get("ticker"),
@@ -861,7 +877,7 @@ async def receive_signal(request: Request):
                 except Exception as e:
                     print(f"  → {account.get('name')}: ERROR {e}")
 
-        signal_id = db.log_signal(payload, True, reason, confidence, accounts_sent)
+        signal_id = db.log_signal(payload, True, reason, confidence, accounts_sent, sentiment_data)
         state.last_signal_id = signal_id
 
         return JSONResponse({
@@ -873,7 +889,7 @@ async def receive_signal(request: Request):
         })
     else:
         state.signals_rejected += 1
-        db.log_signal(payload, False, reason, confidence)
+        db.log_signal(payload, False, reason, confidence, sentiment_data=sentiment_data)
         return JSONResponse({
             "status": "rejected",
             "reason": reason,
