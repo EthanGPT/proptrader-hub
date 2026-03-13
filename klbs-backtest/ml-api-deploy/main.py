@@ -309,6 +309,10 @@ class TradingState:
         self.signals_approved: int = 0
         self.signals_rejected: int = 0
         self.last_signal_id: Optional[int] = None
+        self.last_trade_time: Dict[str, datetime] = {}  # Cooldown tracking per ticker
+
+    # 5-minute cooldown between trades on same asset
+    TRADE_COOLDOWN_SECONDS = 300
 
     def new_day_check(self):
         today = date.today()
@@ -852,7 +856,24 @@ async def receive_signal(request: Request):
             "consecutive_losses": consecutive,
         })
 
-    # Entry signal - ML decision
+    # Entry signal - check 5-minute cooldown per asset first
+    ticker = payload.get("ticker", "")
+    now = datetime.now()
+
+    if ticker in state.last_trade_time:
+        elapsed = (now - state.last_trade_time[ticker]).total_seconds()
+        if elapsed < TradingState.TRADE_COOLDOWN_SECONDS:
+            remaining = int(TradingState.TRADE_COOLDOWN_SECONDS - elapsed)
+            reason = f"Cooldown: {remaining}s remaining for {ticker}"
+            print(f"SIGNAL BLOCKED: {ticker} - {reason}")
+            state.signals_rejected += 1
+            return JSONResponse({
+                "status": "rejected",
+                "reason": reason,
+                "cooldown_remaining": remaining,
+            })
+
+    # ML decision
     approved, reason, confidence = should_take_signal(payload)
 
     # Capture sentiment for logging (v6) - use cache only, never block signal
@@ -878,8 +899,7 @@ async def receive_signal(request: Request):
     if approved:
         state.signals_approved += 1
         state.trades_today += 1
-
-        ticker = payload.get("ticker", "")
+        state.last_trade_time[ticker] = now  # Start 5-min cooldown for this ticker
 
         accounts_sent = []
         async with httpx.AsyncClient() as client:
