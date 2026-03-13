@@ -62,6 +62,9 @@ class FilterConfig:
     confidence_2x: float = 0.65  # 2 contracts at 65%+ confidence
     confidence_3x: float = 0.70  # 3 contracts at 70%+ confidence
 
+    # Disabled accounts (toggled off via API)
+    disabled_accounts: set = field(default_factory=set)
+
     # TradersPost accounts with position limits
     accounts: List[Dict] = field(default_factory=lambda: [
         {
@@ -108,6 +111,7 @@ def get_config_summary() -> Dict:
                 "instruments": a["instruments"],
                 "max_contracts": a.get("max_contracts", {}),
                 "webhook_configured": bool(a.get("webhook", "")),
+                "enabled": a["name"] not in config.disabled_accounts,
             }
             for a in config.accounts
         ],
@@ -904,6 +908,10 @@ async def receive_signal(request: Request):
         accounts_sent = []
         async with httpx.AsyncClient() as client:
             for account in config.accounts:
+                # Skip disabled accounts
+                if account.get("name") in config.disabled_accounts:
+                    print(f"  → {account.get('name')}: DISABLED (skipped)")
+                    continue
                 if ticker not in account.get("instruments", []):
                     continue
                 webhook_url = account.get("webhook", "")
@@ -953,6 +961,30 @@ async def update_config_endpoint(request: Request):
         payload = await request.json()
         update_config(**payload)
         return {"status": "updated", "config": get_config_summary()}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/toggle-account")
+async def toggle_account(request: Request):
+    """Enable/disable an account. Disabled accounts won't receive signals."""
+    try:
+        payload = await request.json()
+        account_name = payload.get("account")
+        enabled = payload.get("enabled", True)
+
+        if enabled:
+            config.disabled_accounts.discard(account_name)
+            status = "enabled"
+        else:
+            config.disabled_accounts.add(account_name)
+            status = "disabled"
+
+        print(f"Account '{account_name}' {status}")
+        return {
+            "status": status,
+            "account": account_name,
+            "disabled_accounts": list(config.disabled_accounts)
+        }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import {
   LayoutDashboard,
   TrendingUp,
@@ -12,10 +13,10 @@ import {
   BarChart3,
   ArrowRightLeft,
   FileText,
-  FlaskConical,
   ExternalLink,
   CalendarDays,
   Settings2,
+  Loader2,
 } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import {
@@ -30,8 +31,17 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Switch } from "@/components/ui/switch";
 import { useJournal, SyncStatus } from "@/context/JournalContext";
 import { cn } from "@/lib/utils";
+
+const API_URL = "https://ml-api-phantom-production.up.railway.app";
 
 // Bot tracking - main navigation
 const botNav = [
@@ -41,7 +51,6 @@ const botNav = [
   { title: "Trades", url: "/bot-trades", icon: ArrowRightLeft },
   { title: "Calendar", url: "/bot-calendar", icon: CalendarDays },
   { title: "Analytics", url: "/bot-analytics", icon: BarChart3 },
-  { title: "ML Control", url: "/bot-control", icon: Settings2 },
 ];
 
 // Research links - external HTML reports
@@ -63,6 +72,11 @@ interface NavItemType {
   title: string;
   url: string;
   icon: React.ComponentType<{ className?: string }>;
+}
+
+interface Account {
+  name: string;
+  enabled: boolean;
 }
 
 function NavItem({ item, isActive }: { item: NavItemType; isActive: boolean }) {
@@ -113,6 +127,47 @@ export function AppSidebar() {
   const { syncStatus, refreshData: triggerSync } = useJournal();
   const sync = syncConfig[syncStatus];
   const SyncIcon = sync.icon;
+
+  // ML Settings modal state
+  const [showSettings, setShowSettings] = useState(false);
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [toggling, setToggling] = useState<string | null>(null);
+
+  const fetchAccounts = async () => {
+    try {
+      setLoading(true);
+      const res = await fetch(`${API_URL}/status`);
+      if (res.ok) {
+        const data = await res.json();
+        setAccounts(data.config?.accounts || []);
+      }
+    } catch (e) {
+      console.error("Failed to fetch ML status");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const toggleAccount = async (name: string, enabled: boolean) => {
+    try {
+      setToggling(name);
+      await fetch(`${API_URL}/toggle-account`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ account: name, enabled }),
+      });
+      setAccounts(prev => prev.map(a => a.name === name ? { ...a, enabled } : a));
+    } catch (e) {
+      console.error("Failed to toggle account");
+    } finally {
+      setToggling(null);
+    }
+  };
+
+  useEffect(() => {
+    if (showSettings) fetchAccounts();
+  }, [showSettings]);
 
   return (
     <Sidebar className="border-r-0">
@@ -180,7 +235,16 @@ export function AppSidebar() {
         </SidebarGroup>
       </SidebarContent>
 
-      <SidebarFooter className="px-4 pb-4 space-y-3">
+      <SidebarFooter className="px-4 pb-4 space-y-2">
+        {/* ML Settings Button */}
+        <button
+          onClick={() => setShowSettings(true)}
+          className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs transition-colors hover:bg-sidebar-accent cursor-pointer text-sidebar-muted"
+        >
+          <Settings2 className="h-3.5 w-3.5" />
+          <span>ML Settings</span>
+        </button>
+
         {/* Sync Status */}
         <button
           onClick={syncStatus !== 'disabled' ? triggerSync : undefined}
@@ -196,6 +260,45 @@ export function AppSidebar() {
           <span className={sync.color}>{sync.label}</span>
         </button>
       </SidebarFooter>
+
+      {/* ML Settings Dialog */}
+      <Dialog open={showSettings} onOpenChange={setShowSettings}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Settings2 className="h-5 w-5" />
+              ML Bot Settings
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            {loading ? (
+              <div className="flex justify-center py-4">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : (
+              accounts.map((account) => (
+                <div
+                  key={account.name}
+                  className={cn(
+                    "flex items-center justify-between p-3 rounded-lg border",
+                    account.enabled ? "bg-card" : "bg-destructive/5 border-destructive/20 opacity-60"
+                  )}
+                >
+                  <span className="text-sm font-medium">{account.name}</span>
+                  <Switch
+                    checked={account.enabled}
+                    disabled={toggling === account.name}
+                    onCheckedChange={(checked) => toggleAccount(account.name, checked)}
+                  />
+                </div>
+              ))
+            )}
+            <p className="text-xs text-muted-foreground text-center pt-2">
+              Toggle accounts on/off. Changes apply immediately.
+            </p>
+          </div>
+        </DialogContent>
+      </Dialog>
     </Sidebar>
   );
 }
