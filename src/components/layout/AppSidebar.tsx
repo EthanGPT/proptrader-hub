@@ -15,6 +15,7 @@ import {
   FlaskConical,
   ExternalLink,
   CalendarDays,
+  Settings2,
 } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import {
@@ -40,6 +41,7 @@ const botNav = [
   { title: "Trades", url: "/bot-trades", icon: ArrowRightLeft },
   { title: "Calendar", url: "/bot-calendar", icon: CalendarDays },
   { title: "Analytics", url: "/bot-analytics", icon: BarChart3 },
+  { title: "ML Control", url: "/bot-control", icon: Settings2 },
 ];
 
 // Research links - external HTML reports
