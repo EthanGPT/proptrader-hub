@@ -728,25 +728,25 @@ function TradeForm({
             type="number"
             step="0.01"
             value={formData.pnl ?? ""}
-            onChange={(e) => set({ pnl: e.target.value !== '' ? parseFloat(e.target.value) : undefined })}
+            onChange={(e) => {
+              const pnl = e.target.value !== '' ? parseFloat(e.target.value) : undefined;
+              const result: Trade["result"] = pnl === undefined ? "breakeven" : pnl > 0 ? "win" : pnl < 0 ? "loss" : "breakeven";
+              set({ pnl, result });
+            }}
             required
           />
         </div>
         <div className="space-y-1">
           <Label>Result</Label>
-          <Select
-            value={formData.result}
-            onValueChange={(v) => set({ result: v as Trade["result"] })}
-          >
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="win">Win</SelectItem>
-              <SelectItem value="loss">Loss</SelectItem>
-              <SelectItem value="breakeven">Breakeven</SelectItem>
-            </SelectContent>
-          </Select>
+          <div className={cn(
+            "flex h-10 items-center rounded-md border px-3 text-sm font-medium",
+            formData.pnl !== undefined && formData.pnl > 0 ? "border-success/50 bg-success/10 text-success" :
+            formData.pnl !== undefined && formData.pnl < 0 ? "border-destructive/50 bg-destructive/10 text-destructive" :
+            "border-border bg-muted text-muted-foreground"
+          )}>
+            {formData.pnl !== undefined && formData.pnl > 0 ? "Win" :
+             formData.pnl !== undefined && formData.pnl < 0 ? "Loss" : "Breakeven"}
+          </div>
         </div>
         <div className="space-y-1">
           <Label htmlFor="trade-rr">R:R</Label>
