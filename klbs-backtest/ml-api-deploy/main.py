@@ -33,6 +33,14 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 # ══════════════════════════════════════════════════════════════════════════════
+# ANTI-HEDGING: CORRELATED INSTRUMENT GROUPS
+# ══════════════════════════════════════════════════════════════════════════════
+
+# MES and MNQ are correlated equity indices - cannot trade opposite directions
+# MGC is standalone - no correlation check needed
+EQUITY_GROUP = {"MES", "MNQ"}
+
+# ══════════════════════════════════════════════════════════════════════════════
 # CONFIGURATION - THE BRAIN
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -295,6 +303,82 @@ class SupabaseDB:
             return [1 if s.get("outcome") == "WIN" else 0 for s in (result.data or [])]
         except:
             return []
+
+    def get_open_positions(self, instrument_group: set) -> List[Dict]:
+        """Get all open positions (outcome=NULL, approved=TRUE) for a group of instruments."""
+        if not self.enabled:
+            return []
+        try:
+            result = self.client.table("ml_signals")\
+                .select("id, ticker, action, timestamp, level")\
+                .eq("approved", True)\
+                .is_("outcome", "null")\
+                .in_("ticker", list(instrument_group))\
+                .order("timestamp", desc=True)\
+                .execute()
+            return result.data or []
+        except Exception as e:
+            print(f"Error fetching open positions: {e}")
+            return []
+
+    def check_hedging_conflict(self, ticker: str, action: str) -> tuple:
+        """
+        Check if new signal would create a hedging conflict.
+
+        Returns: (is_conflict: bool, reason: str, open_positions: list)
+        """
+        # Only check equity group correlation
+        if ticker not in EQUITY_GROUP:
+            return False, "", []
+
+        open_positions = self.get_open_positions(EQUITY_GROUP)
+
+        if not open_positions:
+            return False, "", []
+
+        # Check if any open position is opposite direction
+        new_direction = "LONG" if action == "buy" else "SHORT"
+
+        for pos in open_positions:
+            pos_direction = "LONG" if pos.get("action") == "buy" else "SHORT"
+
+            if pos_direction != new_direction:
+                # HEDGING CONFLICT DETECTED
+                conflict_ticker = pos.get("ticker")
+                conflict_level = pos.get("level")
+                reason = f"HEDGING BLOCKED: Open {pos_direction} on {conflict_ticker} ({conflict_level}) - cannot open {new_direction} on {ticker}"
+                return True, reason, open_positions
+
+        # Same direction = stacking allowed
+        return False, "", open_positions
+
+    def force_flat_equity(self) -> Dict:
+        """
+        Emergency: Mark all open equity positions as manually closed.
+        Use when you forgot to send outcomes and system is stuck.
+        """
+        if not self.enabled:
+            return {"error": "Database not connected"}
+        try:
+            open_positions = self.get_open_positions(EQUITY_GROUP)
+
+            if not open_positions:
+                return {"status": "no_open_positions", "count": 0}
+
+            # Mark all as MANUAL_CLOSE
+            ids = [p.get("id") for p in open_positions]
+            self.client.table("ml_signals")\
+                .update({"outcome": "MANUAL_CLOSE"})\
+                .in_("id", ids)\
+                .execute()
+
+            return {
+                "status": "cleared",
+                "count": len(ids),
+                "positions_closed": [f"{p.get('ticker')} {p.get('action')} ({p.get('level')})" for p in open_positions]
+            }
+        except Exception as e:
+            return {"error": str(e)}
 
 db = SupabaseDB()
 
@@ -862,6 +946,7 @@ async def receive_signal(request: Request):
 
     # Entry signal - check 5-minute cooldown per asset first
     ticker = payload.get("ticker", "")
+    action = payload.get("action", "")
     now = datetime.now()
 
     if ticker in state.last_trade_time:
@@ -876,6 +961,18 @@ async def receive_signal(request: Request):
                 "reason": reason,
                 "cooldown_remaining": remaining,
             })
+
+    # ANTI-HEDGING CHECK - Block opposite direction trades on correlated instruments
+    is_hedging, hedge_reason, open_positions = db.check_hedging_conflict(ticker, action)
+    if is_hedging:
+        print(f"HEDGING BLOCKED: {ticker} {action} - {hedge_reason}")
+        state.signals_rejected += 1
+        db.log_signal(payload, False, hedge_reason, 0.0)
+        return JSONResponse({
+            "status": "rejected",
+            "reason": hedge_reason,
+            "open_positions": [f"{p.get('ticker')} {p.get('action')}" for p in open_positions],
+        })
 
     # ML decision
     approved, reason, confidence = should_take_signal(payload)
@@ -987,6 +1084,61 @@ async def toggle_account(request: Request):
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/open-positions")
+async def get_open_positions():
+    """Get all open positions (outcome=NULL) for equity group (MES/MNQ)."""
+    if not db.enabled:
+        return {"error": "Database not connected"}
+
+    open_positions = db.get_open_positions(EQUITY_GROUP)
+    mgc_positions = db.get_open_positions({"MGC"})
+
+    return {
+        "equity_group": {
+            "instruments": list(EQUITY_GROUP),
+            "open_positions": [
+                {
+                    "id": p.get("id"),
+                    "ticker": p.get("ticker"),
+                    "direction": "LONG" if p.get("action") == "buy" else "SHORT",
+                    "level": p.get("level"),
+                    "timestamp": p.get("timestamp"),
+                }
+                for p in open_positions
+            ],
+            "current_direction": ("LONG" if open_positions[0].get("action") == "buy" else "SHORT") if open_positions else None,
+        },
+        "mgc": {
+            "open_positions": [
+                {
+                    "id": p.get("id"),
+                    "ticker": p.get("ticker"),
+                    "direction": "LONG" if p.get("action") == "buy" else "SHORT",
+                    "level": p.get("level"),
+                    "timestamp": p.get("timestamp"),
+                }
+                for p in mgc_positions
+            ],
+        },
+        "warning": "Fill in outcomes (WIN/LOSS/BE) to close positions and allow opposite direction trades"
+    }
+
+@app.post("/force-flat")
+async def force_flat(request: Request):
+    """
+    EMERGENCY: Mark all open equity positions as manually closed.
+
+    Use this when:
+    - You forgot to send outcome webhooks
+    - System is stuck blocking trades
+    - You're actually flat but system thinks you're in a position
+
+    This marks positions with outcome='MANUAL_CLOSE' so they won't block new trades.
+    """
+    result = db.force_flat_equity()
+    print(f"FORCE FLAT: {result}")
+    return result
 
 @app.get("/filter-validation")
 async def filter_validation():
