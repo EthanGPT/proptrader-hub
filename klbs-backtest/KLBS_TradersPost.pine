@@ -205,7 +205,8 @@ f_trackTrade(string lvlName, float entry, float tp, float sl, bool isLong) =>
 // Send outcome alert to ML Filter
 f_sendOutcome(string lvlName, string outcome, float entryPrice, float exitPrice) =>
     if barstate.isrealtime
-        baseTicker = str.contains(_ticker, "MNQ") ? "MNQ" : str.contains(_ticker, "MES") ? "MES" : str.contains(_ticker, "MGC") ? "MGC" : str.contains(_ticker, "M2K") ? "M2K" : str.contains(_ticker, "ZN") ? "ZN" : str.contains(_ticker, "ZB") ? "ZB" : str.contains(_ticker, "6E") ? "6E" : str.contains(_ticker, "6J") ? "6J" : _ticker
+        // TradersPost contract symbols - must match f_sendAlert
+        baseTicker = str.contains(_ticker, "MNQ") ? "MNQM2026" : str.contains(_ticker, "MES") ? "MESM2026" : str.contains(_ticker, "MGC") ? "MGCJ2026" : str.contains(_ticker, "M2K") ? "M2K" : str.contains(_ticker, "ZN") ? "ZN" : str.contains(_ticker, "ZB") ? "ZB" : str.contains(_ticker, "6E") ? "6E" : str.contains(_ticker, "6J") ? "6J" : _ticker
         pnl = outcome == "LOSS" ? -math.abs((exitPrice - entryPrice) * pointValue * contracts) : (exitPrice - entryPrice) * pointValue * contracts
         alertMsg = '{"type": "outcome", "ticker": "' + baseTicker + '", "level": "' + lvlName + '", "outcome": "' + outcome + '", "entry": ' + str.tostring(entryPrice) + ', "exit": ' + str.tostring(exitPrice) + ', "pnl": ' + str.tostring(pnl, "#.##") + ', "time": "' + str.format_time(timenow, "yyyy-MM-dd\'T\'HH:mm:ssZ", tz) + '"}'
         alert(alertMsg, alert.freq_once_per_bar)
@@ -252,7 +253,10 @@ checkResult = f_checkTrades()
 // ══════════════════════════════════════════════════════════════════════════════
 f_sendAlert(bool isLong, string lvlName, float lvlPrice) =>
     if barstate.isrealtime
-        baseTicker = str.contains(_ticker, "MNQ") ? "MNQ" : str.contains(_ticker, "MES") ? "MES" : str.contains(_ticker, "MGC") ? "MGC" : str.contains(_ticker, "M2K") ? "M2K" : str.contains(_ticker, "ZN") ? "ZN" : str.contains(_ticker, "ZB") ? "ZB" : str.contains(_ticker, "6E") ? "6E" : str.contains(_ticker, "6J") ? "6J" : _ticker
+        // TradersPost contract symbols - UPDATE EACH ROLLOVER
+        // MES/MNQ: Quarterly (H=Mar, M=Jun, U=Sep, Z=Dec)
+        // MGC: Even months (G=Feb, J=Apr, M=Jun, Q=Aug, V=Oct, Z=Dec)
+        baseTicker = str.contains(_ticker, "MNQ") ? "MNQM2026" : str.contains(_ticker, "MES") ? "MESM2026" : str.contains(_ticker, "MGC") ? "MGCJ2026" : str.contains(_ticker, "M2K") ? "M2K" : str.contains(_ticker, "ZN") ? "ZN" : str.contains(_ticker, "ZB") ? "ZB" : str.contains(_ticker, "6E") ? "6E" : str.contains(_ticker, "6J") ? "6J" : _ticker
         action = isLong ? "buy" : "sell"
         session = inLondon ? "London" : inNY ? "NY" : "Other"
         tpPrice = isLong ? lvlPrice + tpPts : lvlPrice - tpPts
