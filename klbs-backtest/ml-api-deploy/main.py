@@ -11,6 +11,7 @@ Deploy: Railway, Fly.io, or Render (~$5/month)
 import os
 import sys
 import json
+import re
 import httpx
 import pickle
 import numpy as np
@@ -168,9 +169,11 @@ class SupabaseDB:
         if not self.enabled:
             return None
         try:
+            # Store base ticker for internal queries (hedging, outcome matching)
+            base_ticker = extract_base_ticker(signal.get("ticker", ""))
             record = {
                 "timestamp": datetime.utcnow().isoformat(),
-                "ticker": signal.get("ticker", ""),
+                "ticker": base_ticker,
                 "action": signal.get("action", ""),
                 "level": signal.get("level", ""),
                 "session": signal.get("session", ""),
@@ -501,6 +504,13 @@ def load_model():
         print(f"WARNING: Model not found at {MODEL_PATH}")
 
 
+def extract_base_ticker(ticker: str) -> str:
+    """Extract base ticker from contract symbol (e.g., MESM2026 -> MES, MNQM2026 -> MNQ)."""
+    # Match base ticker before contract month/year (e.g., MES, MNQ, MGC, M2K)
+    match = re.match(r'^(MES|MNQ|MGC|M2K|ZN|ZB|6E|6J)', ticker)
+    return match.group(1) if match else ticker
+
+
 def extract_features(signal: Dict) -> np.ndarray:
     """
     Extract 34 features matching training script v6.
@@ -577,7 +587,7 @@ def extract_features(signal: Dict) -> np.ndarray:
 
     # 6. Instrument one-hot (3 features)
     instruments = ["MES", "MNQ", "MGC"]
-    inst = signal.get("ticker", "MNQ")
+    inst = extract_base_ticker(signal.get("ticker", "MNQ"))
     features.extend([1.0 if inst == i else 0.0 for i in instruments])
 
     # 7. Technical indicators - DATA-DRIVEN SCORES ONLY
@@ -703,7 +713,7 @@ def extract_features(signal: Dict) -> np.ndarray:
     # 9. News Sentiment features (5 features) - NEW in v6
     # Get live sentiment from RSS feeds
     fetcher = get_sentiment_fetcher()
-    inst = signal.get("ticker", "MNQ")
+    inst = extract_base_ticker(signal.get("ticker", "MNQ"))
 
     if fetcher is not None:
         try:
@@ -790,10 +800,11 @@ def should_take_signal(signal: Dict) -> tuple:
     state.signals_received += 1
 
     ticker = signal.get("ticker", "")
+    base_ticker = extract_base_ticker(ticker)
     session = signal.get("session", "")
 
-    if ticker not in config.enabled_instruments:
-        return False, f"Instrument {ticker} not enabled", 0.0
+    if base_ticker not in config.enabled_instruments:
+        return False, f"Instrument {base_ticker} not enabled", 0.0
 
     if session not in config.enabled_sessions:
         return False, f"Session {session} not enabled", 0.0
@@ -912,6 +923,7 @@ async def receive_signal(request: Request):
     if payload.get("type") == "outcome":
         outcome = payload.get("outcome", "").upper()
         ticker = payload.get("ticker")
+        base_ticker = extract_base_ticker(ticker)  # DB stores base ticker
         level = payload.get("level")
         pnl = payload.get("pnl")
 
@@ -920,7 +932,7 @@ async def receive_signal(request: Request):
 
         # First try to match approved signals (real trades)
         signal_id = db.update_outcome_by_ticker_level(
-            ticker, level, outcome, pnl, approved_only=True
+            base_ticker, level, outcome, pnl, approved_only=True
         )
 
         if signal_id:
@@ -928,12 +940,12 @@ async def receive_signal(request: Request):
         else:
             # No approved match - try rejected signals (hypothetical tracking)
             signal_id = db.update_outcome_by_ticker_level(
-                ticker, level, outcome, pnl, approved_only=False
+                base_ticker, level, outcome, pnl, approved_only=False
             )
             outcome_type = "HYPOTHETICAL" if signal_id else "NO_MATCH"
 
         consecutive = state.consecutive_losses
-        print(f"OUTCOME ({outcome_type}): {ticker} {level} = {outcome} | Streak: {consecutive}")
+        print(f"OUTCOME ({outcome_type}): {base_ticker} {level} = {outcome} | Streak: {consecutive}")
 
         return JSONResponse({
             "status": "outcome_recorded",
@@ -945,16 +957,17 @@ async def receive_signal(request: Request):
         })
 
     # Entry signal - check 5-minute cooldown per asset first
-    ticker = payload.get("ticker", "")
+    ticker = payload.get("ticker", "")  # Full contract symbol (e.g., MESM2026)
+    base_ticker = extract_base_ticker(ticker)  # Base instrument (e.g., MES)
     action = payload.get("action", "")
     now = datetime.now()
 
-    if ticker in state.last_trade_time:
-        elapsed = (now - state.last_trade_time[ticker]).total_seconds()
+    if base_ticker in state.last_trade_time:
+        elapsed = (now - state.last_trade_time[base_ticker]).total_seconds()
         if elapsed < TradingState.TRADE_COOLDOWN_SECONDS:
             remaining = int(TradingState.TRADE_COOLDOWN_SECONDS - elapsed)
-            reason = f"Cooldown: {remaining}s remaining for {ticker}"
-            print(f"SIGNAL BLOCKED: {ticker} - {reason}")
+            reason = f"Cooldown: {remaining}s remaining for {base_ticker}"
+            print(f"SIGNAL BLOCKED: {base_ticker} - {reason}")
             state.signals_rejected += 1
             return JSONResponse({
                 "status": "rejected",
@@ -963,7 +976,7 @@ async def receive_signal(request: Request):
             })
 
     # ANTI-HEDGING CHECK - Block opposite direction trades on correlated instruments
-    is_hedging, hedge_reason, open_positions = db.check_hedging_conflict(ticker, action)
+    is_hedging, hedge_reason, open_positions = db.check_hedging_conflict(base_ticker, action)
     if is_hedging:
         print(f"HEDGING BLOCKED: {ticker} {action} - {hedge_reason}")
         state.signals_rejected += 1
@@ -982,7 +995,7 @@ async def receive_signal(request: Request):
     fetcher = get_sentiment_fetcher()
     if fetcher:
         try:
-            sentiment_data = fetcher.get_current_sentiment(payload.get("ticker", "MNQ"), use_cache_only=True)
+            sentiment_data = fetcher.get_current_sentiment(base_ticker, use_cache_only=True)
         except Exception as e:
             print(f"Sentiment capture error: {e}")
 
@@ -1000,7 +1013,7 @@ async def receive_signal(request: Request):
     if approved:
         state.signals_approved += 1
         state.trades_today += 1
-        state.last_trade_time[ticker] = now  # Start 5-min cooldown for this ticker
+        state.last_trade_time[base_ticker] = now  # Start 5-min cooldown for this ticker
 
         accounts_sent = []
         async with httpx.AsyncClient() as client:
@@ -1009,16 +1022,17 @@ async def receive_signal(request: Request):
                 if account.get("name") in config.disabled_accounts:
                     print(f"  → {account.get('name')}: DISABLED (skipped)")
                     continue
-                if ticker not in account.get("instruments", []):
+                if base_ticker not in account.get("instruments", []):
                     continue
                 webhook_url = account.get("webhook", "")
                 if not webhook_url:
                     continue
 
                 # Calculate position size for this account
-                quantity = get_position_size(confidence, ticker, account)
+                quantity = get_position_size(confidence, base_ticker, account)
 
                 # TradersPost payload with signal override for quantity
+                # Use full ticker (contract symbol) for TradersPost routing
                 tp_payload = {
                     "ticker": ticker,
                     "action": payload.get("action"),
