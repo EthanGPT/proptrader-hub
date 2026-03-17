@@ -74,27 +74,54 @@ class FilterConfig:
     # Disabled accounts (toggled off via API)
     disabled_accounts: set = field(default_factory=set)
 
-    # TradersPost accounts with position limits
+    # TradersPost accounts with per-instrument position sizing
+    # Each instrument has: base (50-65%), conf_65 (65-70%), conf_70 (70%+)
     accounts: List[Dict] = field(default_factory=lambda: [
         {
             "name": "Test v1",
             "webhook": os.getenv("TRADERSPOST_WEBHOOK_1", ""),
             "instruments": ["MES", "MNQ", "MGC"],
-            "max_contracts": {"MES": 3, "MNQ": 3, "MGC": 2},  # MGC capped at 2 always
+            "sizing": {
+                "MNQ": {"base": 1, "conf_65": 2, "conf_70": 3},
+                "MES": {"base": 1, "conf_65": 2, "conf_70": 3},
+                "MGC": {"base": 1, "conf_65": 1, "conf_70": 2},
+            },
             "funded": False,
         },
         {
+            # Apex 25K - $1K max loss, no MGC
             "name": "Ethan - Apex",
             "webhook": os.getenv("TRADERSPOST_WEBHOOK_2", ""),
-            "instruments": ["MES", "MNQ"],  # No MGC on Apex
-            "max_contracts": {"MES": 3, "MNQ": 3},
+            "instruments": ["MES", "MNQ"],
+            "sizing": {
+                "MNQ": {"base": 2, "conf_65": 3, "conf_70": 4},  # $200/$300/$400 risk
+                "MES": {"base": 1, "conf_65": 2, "conf_70": 2},  # $125/$250/$250 risk
+            },
             "funded": True,
         },
         {
+            # Lucid 25K - $1K max loss, has MGC
             "name": "Ethan - Lucid",
             "webhook": os.getenv("TRADERSPOST_WEBHOOK_3", ""),
             "instruments": ["MES", "MNQ", "MGC"],
-            "max_contracts": {"MES": 3, "MNQ": 3, "MGC": 2},  # MGC capped at 2 for 25K
+            "sizing": {
+                "MNQ": {"base": 2, "conf_65": 3, "conf_70": 4},  # $200/$300/$400 risk
+                "MES": {"base": 1, "conf_65": 1, "conf_70": 1},  # $125/$125/$125 risk - capped at 1
+                "MGC": {"base": 1, "conf_65": 1, "conf_70": 1},  # $250/$250/$250 risk - capped at 1
+            },
+            "funded": True,
+        },
+        {
+            # Lucid 100K - $3K max loss, $6K target, conservative sizing
+            # Worst case (70%+ all 3): $500 + $500 + $500 = $1,500 (50% of limit)
+            "name": "Ethan - Lucid 100K",
+            "webhook": os.getenv("TRADERSPOST_WEBHOOK_4", ""),
+            "instruments": ["MES", "MNQ", "MGC"],
+            "sizing": {
+                "MNQ": {"base": 3, "conf_65": 4, "conf_70": 5},  # $300/$400/$500 risk
+                "MES": {"base": 2, "conf_65": 3, "conf_70": 4},  # $250/$375/$500 risk
+                "MGC": {"base": 1, "conf_65": 2, "conf_70": 2},  # $250/$500/$500 risk - capped at 2
+            },
             "funded": True,
         },
     ])
@@ -111,14 +138,14 @@ def get_config_summary() -> Dict:
         "rsi_thresholds": f"{config.rsi_overbought}/{config.rsi_oversold}",
         "position_sizing": {
             "enabled": config.position_sizing_enabled,
-            "2x_at": f"{config.confidence_2x:.0%}",
-            "3x_at": f"{config.confidence_3x:.0%}",
+            "conf_65_threshold": f"{config.confidence_2x:.0%}",
+            "conf_70_threshold": f"{config.confidence_3x:.0%}",
         },
         "accounts": [
             {
                 "name": a["name"],
                 "instruments": a["instruments"],
-                "max_contracts": a.get("max_contracts", {}),
+                "sizing": a.get("sizing", {}),
                 "webhook_configured": bool(a.get("webhook", "")),
                 "enabled": a["name"] not in config.disabled_accounts,
             }
@@ -841,29 +868,30 @@ def should_take_signal(signal: Dict) -> tuple:
 
 def get_position_size(confidence: float, ticker: str, account: Dict) -> int:
     """
-    Calculate position size based on ML confidence.
+    Calculate position size based on ML confidence and account-specific sizing.
 
-    Backtest results (65/35 RSI):
-      55-65% confidence: 58.6% WR → 1 contract
-      65-70% confidence: 80.2% WR → 2 contracts
-      70%+ confidence:   93.1% WR → 3 contracts
+    Each account defines exact contract sizes per instrument at each confidence tier:
+      - base: 50-65% confidence
+      - conf_65: 65-70% confidence
+      - conf_70: 70%+ confidence
+
+    This allows precise risk control per account (25K vs 100K) and per instrument.
     """
     if not config.position_sizing_enabled:
         return 1
 
-    # Base position from confidence
-    if confidence >= config.confidence_3x:
-        base_contracts = 3
-    elif confidence >= config.confidence_2x:
-        base_contracts = 2
-    else:
-        base_contracts = 1
+    # Get account's sizing config for this instrument
+    sizing = account.get("sizing", {}).get(ticker, {"base": 1, "conf_65": 2, "conf_70": 3})
 
-    # Apply account-specific limits
-    max_contracts = account.get("max_contracts", {}).get(ticker, 3)
-    final_contracts = min(base_contracts, max_contracts)
+    # Select quantity based on confidence tier
+    if confidence >= config.confidence_3x:  # 70%+
+        quantity = sizing.get("conf_70", sizing.get("base", 1))
+    elif confidence >= config.confidence_2x:  # 65-70%
+        quantity = sizing.get("conf_65", sizing.get("base", 1))
+    else:  # 50-65%
+        quantity = sizing.get("base", 1)
 
-    return final_contracts
+    return quantity
 
 
 # ══════════════════════════════════════════════════════════════════════════════
