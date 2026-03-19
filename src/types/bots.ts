@@ -333,3 +333,47 @@ export type BrokerConnectionFormData = {
 };
 
 export type BrokerMappingFormData = Omit<BrokerAccountMapping, 'id' | 'created_at'>;
+
+// ============================================
+// ML ACCOUNT SIZING CONFIGURATION
+// ============================================
+
+// Per-instrument confidence tier sizing
+export interface InstrumentSizing {
+  base: number;      // 50-65% confidence
+  conf_65: number;   // 65-70% confidence
+  conf_70: number;   // 70%+ confidence
+}
+
+// ML trading account configuration
+export interface MLAccount {
+  id: string;
+  name: string;
+  webhook_env_key: string;  // Environment variable name for webhook URL
+  instruments: string[];    // Which instruments this account trades
+  sizing: Record<string, InstrumentSizing>;  // Per-instrument sizing
+  funded: boolean;
+  enabled: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+// Global ML configuration
+export interface MLConfig {
+  threshold: number;
+  max_trades_per_day: number;
+  max_consecutive_losses: number;
+  enabled_instruments: string[];
+  enabled_sessions: string[];
+  position_sizing_enabled: boolean;
+  confidence_2x: number;  // 65% threshold
+  confidence_3x: number;  // 70% threshold
+  accounts: MLAccount[];
+}
+
+// Available ML instruments
+export const ML_INSTRUMENTS = ['MES', 'MNQ', 'MGC'] as const;
+export type MLInstrument = typeof ML_INSTRUMENTS[number];
+
+// Form types
+export type MLAccountFormData = Omit<MLAccount, 'id' | 'created_at' | 'updated_at'>;

@@ -22,6 +22,7 @@ import BotAccounts from "./pages/BotAccounts";
 import BotTrades from "./pages/BotTrades";
 import BotCalendar from "./pages/BotCalendar";
 import BotAnalytics from "./pages/BotAnalytics";
+import Settings from "./pages/Settings";
 
 const queryClient = new QueryClient();
 
@@ -118,6 +119,16 @@ const App = () => (
                   element={
                     <AppLayout>
                       <Reports />
+                    </AppLayout>
+                  }
+                />
+
+                {/* Settings */}
+                <Route
+                  path="/settings"
+                  element={
+                    <AppLayout>
+                      <Settings />
                     </AppLayout>
                   }
                 />

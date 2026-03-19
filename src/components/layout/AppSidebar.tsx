@@ -275,12 +275,12 @@ export function AppSidebar() {
             <SyncIcon className={cn("h-3.5 w-3.5", sync.color, syncStatus === 'syncing' && "animate-spin")} />
             <span className={sync.color}>{sync.label}</span>
           </button>
-          <button
-            onClick={() => setShowSettings(true)}
+          <NavLink
+            to="/settings"
             className="p-2 rounded-lg hover:bg-sidebar-accent transition-colors text-sidebar-muted"
           >
             <Settings2 className="h-4 w-4" />
-          </button>
+          </NavLink>
         </div>
 
       </SidebarFooter>

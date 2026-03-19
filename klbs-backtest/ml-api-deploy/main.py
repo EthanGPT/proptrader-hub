@@ -155,8 +155,46 @@ def get_config_summary() -> Dict:
 
 def update_config(**kwargs):
     for key, value in kwargs.items():
-        if hasattr(config, key):
+        if key == "accounts" and isinstance(value, list):
+            # Special handling for accounts - update sizing/instruments while preserving webhooks
+            update_accounts(value)
+        elif hasattr(config, key):
             setattr(config, key, value)
+
+def update_accounts(new_accounts: List[Dict]):
+    """
+    Update account configurations while preserving webhook environment variables.
+    Matches accounts by name and updates sizing/instruments.
+    """
+    # Create a map of existing accounts by name
+    existing_map = {a["name"]: a for a in config.accounts}
+
+    updated_accounts = []
+    for new_acc in new_accounts:
+        name = new_acc.get("name", "")
+        if name in existing_map:
+            # Update existing account - preserve webhook
+            existing = existing_map[name]
+            updated = {
+                "name": name,
+                "webhook": existing.get("webhook", ""),  # Preserve webhook from env
+                "instruments": new_acc.get("instruments", existing.get("instruments", [])),
+                "sizing": new_acc.get("sizing", existing.get("sizing", {})),
+                "funded": new_acc.get("funded", existing.get("funded", False)),
+            }
+            updated_accounts.append(updated)
+        else:
+            # New account - create with empty webhook (needs env var setup)
+            updated_accounts.append({
+                "name": name,
+                "webhook": "",  # User needs to set TRADERSPOST_WEBHOOK_X env var
+                "instruments": new_acc.get("instruments", []),
+                "sizing": new_acc.get("sizing", {}),
+                "funded": new_acc.get("funded", False),
+            })
+
+    config.accounts = updated_accounts
+    print(f"Updated {len(updated_accounts)} accounts")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SUPABASE DATABASE
@@ -1058,6 +1096,11 @@ async def receive_signal(request: Request):
 
                 # Calculate position size for this account
                 quantity = get_position_size(confidence, base_ticker, account)
+
+                # Skip if quantity is 0 (instrument disabled at this confidence tier)
+                if quantity == 0:
+                    print(f"  → {account.get('name')}: 0 contracts for {base_ticker} at {confidence:.0%} (skipped)")
+                    continue
 
                 # TradersPost payload with signal override for quantity
                 # Use full ticker (contract symbol) for TradersPost routing
