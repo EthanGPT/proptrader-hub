@@ -161,6 +161,15 @@ def update_config(**kwargs):
         elif hasattr(config, key):
             setattr(config, key, value)
 
+    # Save to Supabase
+    db.save_ml_config(
+        threshold=config.threshold,
+        confidence_2x=config.confidence_2x,
+        confidence_3x=config.confidence_3x,
+        accounts=config.accounts,
+        disabled_accounts=config.disabled_accounts,
+    )
+
 def update_accounts(new_accounts: List[Dict]):
     """
     Update account configurations while preserving webhook environment variables.
@@ -227,6 +236,48 @@ class SupabaseDB:
             print("Connected to Supabase")
         except Exception as e:
             print(f"Supabase connection failed: {e}")
+
+    def load_ml_config(self) -> Optional[Dict]:
+        """Load ML config from Supabase."""
+        if not self.enabled:
+            return None
+        try:
+            result = self.client.table("ml_config").select("*").eq("config_key", "main").execute()
+            if result.data:
+                return result.data[0]
+            return None
+        except Exception as e:
+            print(f"Error loading ML config: {e}")
+            return None
+
+    def save_ml_config(self, threshold: float, confidence_2x: float, confidence_3x: float,
+                       accounts: List[Dict], disabled_accounts: List[str]):
+        """Save ML config to Supabase."""
+        if not self.enabled:
+            return
+        try:
+            # Strip webhooks before saving (they come from env vars)
+            accounts_to_save = [
+                {
+                    "name": a.get("name"),
+                    "instruments": a.get("instruments", []),
+                    "sizing": a.get("sizing", {}),
+                    "funded": a.get("funded", False),
+                }
+                for a in accounts
+            ]
+            self.client.table("ml_config").upsert({
+                "config_key": "main",
+                "threshold": threshold,
+                "confidence_2x": confidence_2x,
+                "confidence_3x": confidence_3x,
+                "accounts": accounts_to_save,
+                "disabled_accounts": list(disabled_accounts),
+                "updated_at": datetime.utcnow().isoformat(),
+            }).execute()
+            print(f"Saved ML config to Supabase")
+        except Exception as e:
+            print(f"Error saving ML config: {e}")
 
     def log_signal(self, signal: Dict, approved: bool, reason: str,
                    confidence: float, accounts_sent: List[str] = None,
@@ -449,6 +500,62 @@ class SupabaseDB:
             return {"error": str(e)}
 
 db = SupabaseDB()
+
+def load_config_from_db():
+    """Load ML config from Supabase and merge with hardcoded defaults (for webhooks)."""
+    saved = db.load_ml_config()
+    if not saved:
+        print("No saved config in Supabase, using defaults")
+        return
+
+    print("Loading config from Supabase...")
+
+    # Update thresholds
+    if saved.get("threshold"):
+        config.threshold = float(saved["threshold"])
+    if saved.get("confidence_2x"):
+        config.confidence_2x = float(saved["confidence_2x"])
+    if saved.get("confidence_3x"):
+        config.confidence_3x = float(saved["confidence_3x"])
+
+    # Update disabled accounts
+    if saved.get("disabled_accounts"):
+        config.disabled_accounts = set(saved["disabled_accounts"])
+
+    # Merge saved accounts with defaults (to preserve webhooks from env vars)
+    saved_accounts = saved.get("accounts", [])
+    if saved_accounts:
+        # Create map of default accounts (which have webhooks)
+        default_map = {a["name"]: a for a in config.accounts}
+
+        merged_accounts = []
+        for saved_acc in saved_accounts:
+            name = saved_acc.get("name", "")
+            if name in default_map:
+                # Merge: use saved sizing/instruments, keep webhook from default
+                merged = {
+                    "name": name,
+                    "webhook": default_map[name].get("webhook", ""),
+                    "instruments": saved_acc.get("instruments", default_map[name].get("instruments", [])),
+                    "sizing": saved_acc.get("sizing", default_map[name].get("sizing", {})),
+                    "funded": saved_acc.get("funded", False),
+                }
+                merged_accounts.append(merged)
+            else:
+                # New account from DB (no webhook)
+                merged_accounts.append({
+                    "name": name,
+                    "webhook": "",
+                    "instruments": saved_acc.get("instruments", []),
+                    "sizing": saved_acc.get("sizing", {}),
+                    "funded": saved_acc.get("funded", False),
+                })
+
+        config.accounts = merged_accounts
+        print(f"Loaded {len(merged_accounts)} accounts from Supabase")
+
+# Load config from Supabase on startup
+load_config_from_db()
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TRADING STATE
@@ -1160,6 +1267,15 @@ async def toggle_account(request: Request):
         else:
             config.disabled_accounts.add(account_name)
             status = "disabled"
+
+        # Save to Supabase
+        db.save_ml_config(
+            threshold=config.threshold,
+            confidence_2x=config.confidence_2x,
+            confidence_3x=config.confidence_3x,
+            accounts=config.accounts,
+            disabled_accounts=config.disabled_accounts,
+        )
 
         print(f"Account '{account_name}' {status}")
         return {
