@@ -513,26 +513,36 @@ export function AccountSizingManager({ className }: AccountSizingManagerProps) {
                         </tr>
                       </thead>
                       <tbody>
-                        {account.instruments.map((instrument) => (
+                        {account.instruments.map((instrument) => {
+                          // Fixed SL risk per contract
+                          const riskPerContract = instrument === "MNQ" ? 100 : instrument === "MES" ? 125 : instrument === "MGC" ? 250 : 100;
+                          const baseContracts = account.sizing[instrument]?.base ?? 1;
+                          const tier2Contracts = account.sizing[instrument]?.conf_65 ?? 2;
+                          const tier3Contracts = account.sizing[instrument]?.conf_70 ?? 3;
+
+                          return (
                           <tr key={instrument} className="border-b border-border/50">
                             <td className="py-2 px-2 font-medium">{instrument}</td>
                             <td className="py-2 px-2 text-center">
                               <InlineNumber
-                                value={account.sizing[instrument]?.base ?? 1}
+                                value={baseContracts}
                                 onChange={(val) => updateAccountSizing(account, instrument, "base", val)}
                               />
+                              <div className="text-[10px] text-muted-foreground">${baseContracts * riskPerContract}</div>
                             </td>
                             <td className="py-2 px-2 text-center">
                               <InlineNumber
-                                value={account.sizing[instrument]?.conf_65 ?? 2}
+                                value={tier2Contracts}
                                 onChange={(val) => updateAccountSizing(account, instrument, "conf_65", val)}
                               />
+                              <div className="text-[10px] text-muted-foreground">${tier2Contracts * riskPerContract}</div>
                             </td>
                             <td className="py-2 px-2 text-center">
                               <InlineNumber
-                                value={account.sizing[instrument]?.conf_70 ?? 3}
+                                value={tier3Contracts}
                                 onChange={(val) => updateAccountSizing(account, instrument, "conf_70", val)}
                               />
+                              <div className="text-[10px] text-muted-foreground">${tier3Contracts * riskPerContract}</div>
                             </td>
                           </tr>
                         ))}
@@ -541,24 +551,6 @@ export function AccountSizingManager({ className }: AccountSizingManagerProps) {
                   </div>
                 </div>
 
-                {/* Risk Preview */}
-                <div className="bg-secondary/30 rounded-lg p-3">
-                  <Label className="text-xs text-muted-foreground">Max Risk Per Trade (at 70%+ confidence)</Label>
-                  <div className="flex flex-wrap gap-4 mt-2 text-sm">
-                    {account.instruments.map((instrument) => {
-                      const contracts = account.sizing[instrument]?.conf_70 ?? 3;
-                      // Fixed SL risk per contract
-                      const riskPerContract = instrument === "MNQ" ? 100 : instrument === "MES" ? 125 : instrument === "MGC" ? 250 : 100;
-                      const risk = contracts * riskPerContract;
-                      return (
-                        <div key={instrument} className="flex items-center gap-2">
-                          <span className="font-medium">{instrument}:</span>
-                          <span className="text-muted-foreground">{contracts}x = ${risk}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
               </CollapsibleContent>
             </div>
           </Collapsible>
