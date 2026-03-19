@@ -545,7 +545,8 @@ export function AccountSizingManager({ className }: AccountSizingManagerProps) {
                               <div className="text-[10px] text-muted-foreground">${tier3Contracts * riskPerContract}</div>
                             </td>
                           </tr>
-                        ))}
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
