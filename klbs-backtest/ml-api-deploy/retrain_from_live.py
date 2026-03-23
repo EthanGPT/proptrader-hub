@@ -673,7 +673,7 @@ def main():
     # Connect to Supabase
     client = connect_supabase()
     if not client:
-        return
+        sys.exit(1)
 
     # Fetch live signals with outcomes
     live_df = fetch_live_signals(client)
@@ -682,7 +682,7 @@ def main():
         print(f"\nNeed at least {MIN_LIVE_SIGNALS} signals with outcomes to retrain.")
         print(f"Currently have: {len(live_df)}")
         print("Exiting without retraining.")
-        return
+        sys.exit(1)
 
     # Analyze decisions
     insights = analyze_decisions(live_df)
@@ -699,7 +699,7 @@ def main():
         print(f"\n!!! ERROR: Feature count mismatch!")
         print(f"    Expected: {expected_features}, Got: {X.shape[1]}")
         print("    This will break the model. Fix before continuing.")
-        return
+        sys.exit(1)
 
     # Train
     model = train_model(X, y, weights)
@@ -739,4 +739,10 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        print(f"\n!!! FATAL ERROR: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
