@@ -46,13 +46,27 @@ jobs:
           for i in {1..60}; do
             sleep 10
             STATUS=$(curl -s "${{ secrets.ML_API_URL }}/retrain-status")
-            echo "Status check $i: $STATUS"
+            echo "Status check $i"
 
             if echo "$STATUS" | grep -q '"running":false'; then
+              # Extract and display report
+              REPORT=$(echo "$STATUS" | jq -r '.report // ""')
+
+              echo "## ML Retrain Report" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              echo "$REPORT" >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+
               if echo "$STATUS" | grep -q '"last_result":"success"'; then
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo "✅ **Retrain completed successfully!**" >> $GITHUB_STEP_SUMMARY
                 echo "Retrain completed successfully!"
                 exit 0
               else
+                ERROR=$(echo "$STATUS" | jq -r '.last_error // "Unknown error"')
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo "❌ **Retrain failed:** $ERROR" >> $GITHUB_STEP_SUMMARY
                 echo "Retrain failed!"
                 exit 1
               fi
@@ -60,6 +74,7 @@ jobs:
           done
 
           echo "Retrain timed out after 10 minutes"
+          echo "❌ **Retrain timed out after 10 minutes**" >> $GITHUB_STEP_SUMMARY
           exit 1
 
       - name: Notify on Failure

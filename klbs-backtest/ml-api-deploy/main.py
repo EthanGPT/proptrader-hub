@@ -1545,6 +1545,9 @@ def run_retrain():
             timeout=300,  # 5 minute timeout
         )
 
+        # Capture full output as report
+        retrain_status["report"] = result.stdout if result.stdout else ""
+
         if result.returncode == 0:
             retrain_status["last_result"] = "success"
             # Reload the model
@@ -1606,6 +1609,7 @@ async def get_retrain_status():
         "last_run": retrain_status["last_run"],
         "last_result": retrain_status["last_result"],
         "last_error": retrain_status["last_error"],
+        "report": retrain_status.get("report", ""),
         "model_loaded": model is not None,
     }
 
