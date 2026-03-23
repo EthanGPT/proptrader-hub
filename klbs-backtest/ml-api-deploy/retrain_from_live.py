@@ -623,6 +623,12 @@ def prepare_training_data(live_df: pd.DataFrame, hist_df: pd.DataFrame):
     y = np.array(y_list)
     weights = np.array(weights_list)
 
+    # Handle NaN values - GradientBoostingClassifier can't handle them
+    nan_count = np.isnan(X).sum()
+    if nan_count > 0:
+        print(f"   WARNING: Found {nan_count} NaN values, replacing with 0.5")
+        X = np.nan_to_num(X, nan=0.5)
+
     print(f"   Final dataset: {len(X):,} samples, {X.shape[1]} features")
     print(f"   Live signals contribute: {len(live_df) * LIVE_DATA_WEIGHT / weights.sum() * 100:.1f}% of weight")
 
