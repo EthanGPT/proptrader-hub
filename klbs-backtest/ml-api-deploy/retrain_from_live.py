@@ -91,6 +91,15 @@ def connect_supabase():
         return None
 
 
+def save_retrain_summary(client, summary: dict):
+    """Save retrain summary to Supabase for visibility."""
+    try:
+        client.table("retrain_logs").insert(summary).execute()
+        print("   Saved retrain summary to Supabase")
+    except Exception as e:
+        print(f"   Warning: Could not save summary: {e}")
+
+
 def fetch_live_signals(client) -> pd.DataFrame:
     """Fetch all signals with outcomes from Supabase."""
     print("\n1. Fetching live signals from Supabase...")
@@ -735,10 +744,34 @@ def main():
     print(f"   Live signals: {len(live_df)} (weighted {LIVE_DATA_WEIGHT}x)")
     print(f"   Historical: {len(hist_df):,}")
 
-    if insights.get("approved", {}).get("count", 0) > 0:
-        print(f"\nApproved signal accuracy: {insights['approved']['win_rate']:.1%}")
-    if insights.get("rejected", {}).get("count", 0) > 0:
-        print(f"Rejected signal win rate: {insights['rejected']['win_rate']:.1%}")
+    approved_wr = insights.get("approved", {}).get("win_rate")
+    rejected_wr = insights.get("rejected", {}).get("win_rate")
+    filter_edge = None
+
+    if approved_wr is not None:
+        print(f"\nApproved signal accuracy: {approved_wr:.1%}")
+    if rejected_wr is not None:
+        print(f"Rejected signal win rate: {rejected_wr:.1%}")
+    if approved_wr is not None and rejected_wr is not None:
+        filter_edge = approved_wr - rejected_wr
+        print(f"Filter edge: {filter_edge:+.1%}")
+
+    # Save summary to Supabase
+    summary = {
+        "retrained_at": datetime.utcnow().isoformat(),
+        "live_signals_count": len(live_df),
+        "historical_signals_count": len(hist_df),
+        "live_weight": LIVE_DATA_WEIGHT,
+        "approved_count": insights.get("approved", {}).get("count", 0),
+        "approved_wins": insights.get("approved", {}).get("wins", 0),
+        "approved_win_rate": round(approved_wr, 4) if approved_wr else None,
+        "rejected_count": insights.get("rejected", {}).get("count", 0),
+        "rejected_wins": insights.get("rejected", {}).get("wins", 0),
+        "rejected_win_rate": round(rejected_wr, 4) if rejected_wr else None,
+        "filter_edge": round(filter_edge, 4) if filter_edge else None,
+        "model_features": model.n_features_in_,
+    }
+    save_retrain_summary(client, summary)
 
     print("\nModel is now updated! Restart the API to use the new model.")
     print("=" * 70)
